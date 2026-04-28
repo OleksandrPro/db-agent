@@ -1,0 +1,9 @@
+services:
+  agent:
+    environment:
+      - DB_HOST=${PROD_DB_IP}
+      - TEST_DB_HOST=db-test
+    restart: always
+
+  db-test:
+    restart: always
