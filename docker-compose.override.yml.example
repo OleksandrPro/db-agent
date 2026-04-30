@@ -17,13 +17,13 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     ports:
-      - "5440:5432"
+      - "${EXTERNAL_PROD_PORT}:5432"
     volumes:
       - prod_data:/var/lib/postgresql/data
 
   db-test:
     ports:
-      - "5441:5432"
+      - "${EXTERNAL_TEST_PORT}:5432"
 
 volumes:
   prod_data:
