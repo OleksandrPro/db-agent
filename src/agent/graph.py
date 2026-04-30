@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, START, END
-from .states import AgentState
-from .nodes import (
+from agent.states import AgentState
+from agent.nodes import (
     introspect_db_node,
     generate_sql_node,
     test_sql_node,

@@ -1,11 +1,41 @@
 from typing import Literal
-from .states import AgentState
+from sqlalchemy import create_engine, MetaData
+from sqlalchemy.schema import CreateTable
+from config import DatabaseConfig
+from agent.states import AgentState
 
 
 def introspect_db_node(state: AgentState):
-    print("\n[Node: Introspection] Reading database schema...")
-    # TODO: Connect to DB and fetch tables/columns
-    return {"current_schema": "table_users(id, name, email)", "iterations": 0}
+    print("\n[Node: Introspection] Reflecting Production DB schema...")
+    
+    engine = create_engine(DatabaseConfig.PROD_URL)
+    
+    try:
+        with engine.connect() as connection:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            
+            ddl_statements = []
+            
+            for table_name in metadata.tables:
+                table_obj = metadata.tables[table_name]
+                
+                ddl = str(CreateTable(table_obj).compile(engine))
+                ddl_statements.append(ddl.strip() + ";")
+            
+            full_schema = "\n\n".join(ddl_statements)
+            
+            if not ddl_statements:
+                full_schema = "Database is empty."
+                
+            print(f"Successfully reflected {len(ddl_statements)} tables.")
+            return {"current_schema": full_schema}
+            
+    except Exception as e:
+        print(f"Error during reflection: {e}")
+        return {"current_schema": f"Error: {e}", "status": "failed"}
+    finally:
+        engine.dispose()
 
 def generate_sql_node(state: AgentState):
     print(f"\n[Node: Generation] Generating SQL for: {state['user_input']}")
