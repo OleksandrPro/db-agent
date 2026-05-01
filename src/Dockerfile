@@ -8,6 +8,8 @@ COPY pyproject.toml uv.lock ./
 
 RUN uv sync --frozen --no-install-project
 
+ENV PATH="/app/.venv/bin:$PATH"
+
 COPY src/ ./src/
 
 CMD ["uv", "run", "python", "src/main.py"]

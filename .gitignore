@@ -13,3 +13,5 @@ wheels/
 
 .env
 docker-compose.override.yml
+
+scripts
