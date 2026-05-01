@@ -1,7 +1,7 @@
 from typing import Literal
 from config import DatabaseConfig
 from agent.states import AgentState
-from agent.db_utils import (
+from utils.db_utils import (
     get_engine,
     fetch_schema_metadata,
     metadata_to_ddl,
