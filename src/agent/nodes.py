@@ -69,8 +69,17 @@ def test_sql_node(state: AgentState):
 
 def deploy_node(state: AgentState):
     print("\n[Node: Deployment] Applying changes to Production DB...")
-    # TODO: Execute generated_sql in db-prod
-    return {"status": "deployed"}
+    
+    prod_engine = get_engine(DatabaseConfig.PROD_URL)
+    try:
+        apply_sql_query(prod_engine, state["generated_sql"])
+        print("Success: Changes successfully deployed to Production!")
+        return {"status": "deployed"}
+    except Exception as e:
+        print(f"CRITICAL ERROR during deployment: {e}")
+        return {"status": "failed_deploy", "error_log": str(e)}
+    finally:
+        prod_engine.dispose()
 
 def should_continue(state: AgentState) -> Literal["deploy", "generate", "end"]:
     if state["status"] == "success":
