@@ -1,3 +1,4 @@
+from functools import partial 
 from langgraph.graph import StateGraph, START, END
 from agent.states import AgentState
 from agent.nodes import (
@@ -7,12 +8,17 @@ from agent.nodes import (
     deploy_node,
     should_continue
 )
+from agent.sql_generation.providers import MockSQLGenerator, GeminiSQLGenerator
+
+generator_impl = MockSQLGenerator()
+generator_impl_2 = GeminiSQLGenerator()
+bound_generate_node = partial(generate_sql_node, generator=generator_impl)
 
 
 workflow = StateGraph(AgentState)
 
 workflow.add_node("introspect", introspect_db_node)
-workflow.add_node("generate", generate_sql_node)
+workflow.add_node("generate", bound_generate_node)
 workflow.add_node("test", test_sql_node)
 workflow.add_node("deploy", deploy_node)
 

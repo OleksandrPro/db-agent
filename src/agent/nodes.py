@@ -2,6 +2,7 @@ from typing import Literal
 from config import DatabaseConfig
 from agent.states import AgentState
 from agent.db_utils import get_engine, fetch_schema_metadata, metadata_to_ddl
+from agent.sql_generation.protocol import SQLGenerator
 
 
 def introspect_db_node(state: AgentState):
@@ -22,11 +23,15 @@ def introspect_db_node(state: AgentState):
     finally:
         engine.dispose()
 
-def generate_sql_node(state: AgentState):
+def generate_sql_node(state: AgentState, generator: SQLGenerator):
     print(f"\n[Node: Generation] Generating SQL for: {state['user_input']}")
-    # TODO: Pass schema + input to Gemini
-    # Placeholder SQL
-    return {"generated_sql": "ALTER TABLE table_users ADD COLUMN age INTEGER;"}
+
+    generated_sql = generator.generate(
+        current_schema=state["current_schema"],
+        user_input=state["user_input"]
+    )
+    
+    return {"generated_sql": generated_sql}
 
 def test_sql_node(state: AgentState):
     print("\n[Node: Testing] Running SQL in Sandbox...")
