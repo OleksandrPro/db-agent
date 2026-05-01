@@ -1,5 +1,8 @@
 from sqlalchemy import create_engine, MetaData, text
 from sqlalchemy.schema import CreateTable
+from utils.logging import setup_logger
+
+logger = setup_logger(__name__)
 
 def get_engine(url: str):
     return create_engine(url)
@@ -22,7 +25,7 @@ def clear_database(engine):
     metadata = MetaData()
     metadata.reflect(bind=engine)
     metadata.drop_all(bind=engine)
-    print("Database cleared.")
+    logger.info(f"Database {engine.url.database} cleared.")
 
 def clone_schema(source_engine, target_engine):
     clear_database(target_engine)
@@ -31,7 +34,7 @@ def clone_schema(source_engine, target_engine):
     metadata.reflect(bind=source_engine)
     
     metadata.create_all(bind=target_engine)
-    print("Sandbox schema is ready.")
+    logger.info("Schema cloned to sandbox.")
 
 def apply_sql_query(engine, sql_string: str):
     with engine.begin() as conn:

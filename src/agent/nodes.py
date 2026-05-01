@@ -9,10 +9,13 @@ from utils.db import (
     apply_sql_query
 )
 from agent.sql_generation.protocol import SQLGenerator
+from utils.logging import setup_logger
 
+
+logger = setup_logger(__name__)
 
 def introspect_db_node(state: AgentState):
-    print("\n[Node: Introspection] Reflecting Production DB schema...")
+    logger.info("Starting introspection...")
     
     engine = get_engine(DatabaseConfig.PROD_URL)
 
@@ -20,27 +23,30 @@ def introspect_db_node(state: AgentState):
         metadata = fetch_schema_metadata(engine)
         full_schema = metadata_to_ddl(engine, metadata)
         
-        print(f"Successfully reflected {len(metadata.tables)} tables.")
-        return {"current_schema": full_schema}
+        msg = f"Reflected {len(metadata.tables)} tables."
+        logger.info(msg)
+        return {"current_schema": full_schema, "logs": [msg]}
             
     except Exception as e:
-        print(f"Error during reflection: {e}")
-        return {"current_schema": f"Error: {e}", "status": "failed"}
+        logger.error(f"Introspection failed: {e}")
+        return {"status": "failed", "error_log": str(e), "logs": [f"Error: {e}"]}
     finally:
         engine.dispose()
 
 def generate_sql_node(state: AgentState, generator: SQLGenerator):
-    print(f"\n[Node: Generation] Generating SQL for: {state['user_input']}")
+    logger.info(f"Generating SQL for: {state['user_input']}")
+
+    retry_msg = f" (Retry {state['iterations']})" if state.get("iterations", 0) > 0 else ""
 
     generated_sql = generator.generate(
         current_schema=state["current_schema"],
         user_input=state["user_input"]
     )
     
-    return {"generated_sql": generated_sql}
+    return {"generated_sql": generated_sql, "logs": [f"SQL Generated{retry_msg}."]}
 
 def test_sql_node(state: AgentState):
-    print("\n[Node: Testing] Running SQL in Sandbox...")
+    logger.info("Testing SQL in sandbox...")
     
     prod_engine = get_engine(DatabaseConfig.PROD_URL)
     test_engine = get_engine(DatabaseConfig.TEST_URL)
@@ -52,31 +58,32 @@ def test_sql_node(state: AgentState):
         print(f"Executing: {generated_sql}")
         apply_sql_query(test_engine, generated_sql)
         
-        print("Success: SQL is valid and applied to Sandbox.")
-        return {"status": "success", "error_log": None}
-        
+        msg = "Sandbox test passed."
+        logger.info(msg)
+        return {"status": "success", "error_log": None, "logs": [msg]}
     except Exception as e:
-        error_msg = str(e)
-        print(f"Error during testing: {error_msg}")
+        err_msg = str(e)
+        logger.warning(f"Test failed: {err_msg}")
         return {
             "status": "failed", 
-            "error_log": error_msg,
-            "iterations": state.get("iterations", 0) + 1 
+            "error_log": err_msg,
+            "iterations": state.get("iterations", 0) + 1,
+            "logs": [f"Test failed: {err_msg}"]
         }
     finally:
         prod_engine.dispose()
         test_engine.dispose()
 
 def deploy_node(state: AgentState):
-    print("\n[Node: Deployment] Applying changes to Production DB...")
+    logger.info("Deploying to production...")
     
     prod_engine = get_engine(DatabaseConfig.PROD_URL)
     try:
         apply_sql_query(prod_engine, state["generated_sql"])
-        print("Success: Changes successfully deployed to Production!")
-        return {"status": "deployed"}
+        logger.info("Deployment simulated successfully.")
+        return {"status": "deployed", "logs": ["Deployed to production."]}
     except Exception as e:
-        print(f"CRITICAL ERROR during deployment: {e}")
+        logger.error(f"CRITICAL ERROR during deployment: {e}")
         return {"status": "failed_deploy", "error_log": str(e)}
     finally:
         prod_engine.dispose()
