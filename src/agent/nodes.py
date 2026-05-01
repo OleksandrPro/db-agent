@@ -3,33 +3,20 @@ from sqlalchemy import create_engine, MetaData
 from sqlalchemy.schema import CreateTable
 from config import DatabaseConfig
 from agent.states import AgentState
+from agent.db_utils import get_engine, fetch_schema_metadata, metadata_to_ddl
 
 
 def introspect_db_node(state: AgentState):
     print("\n[Node: Introspection] Reflecting Production DB schema...")
     
-    engine = create_engine(DatabaseConfig.PROD_URL)
+    engine = get_engine(DatabaseConfig.PROD_URL)
     
     try:
-        with engine.connect() as connection:
-            metadata = MetaData()
-            metadata.reflect(bind=engine)
-            
-            ddl_statements = []
-            
-            for table_name in metadata.tables:
-                table_obj = metadata.tables[table_name]
-                
-                ddl = str(CreateTable(table_obj).compile(engine))
-                ddl_statements.append(ddl.strip() + ";")
-            
-            full_schema = "\n\n".join(ddl_statements)
-            
-            if not ddl_statements:
-                full_schema = "Database is empty."
-                
-            print(f"Successfully reflected {len(ddl_statements)} tables.")
-            return {"current_schema": full_schema}
+        metadata = fetch_schema_metadata(engine)
+        full_schema = metadata_to_ddl(engine, metadata)
+        
+        print(f"Successfully reflected {len(metadata.tables)} tables.")
+        return {"current_schema": full_schema}
             
     except Exception as e:
         print(f"Error during reflection: {e}")
