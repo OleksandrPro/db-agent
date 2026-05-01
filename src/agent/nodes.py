@@ -1,7 +1,13 @@
 from typing import Literal
 from config import DatabaseConfig
 from agent.states import AgentState
-from agent.db_utils import get_engine, fetch_schema_metadata, metadata_to_ddl
+from agent.db_utils import (
+    get_engine,
+    fetch_schema_metadata,
+    metadata_to_ddl,
+    clone_schema,
+    apply_sql_query
+)
 from agent.sql_generation.protocol import SQLGenerator
 
 
@@ -35,21 +41,31 @@ def generate_sql_node(state: AgentState, generator: SQLGenerator):
 
 def test_sql_node(state: AgentState):
     print("\n[Node: Testing] Running SQL in Sandbox...")
-    # TODO: Execute generated_sql in db-test container
     
-    # Simulate a successful test for now
-    test_passed = True 
+    prod_engine = get_engine(DatabaseConfig.PROD_URL)
+    test_engine = get_engine(DatabaseConfig.TEST_URL)
     
-    if test_passed:
-        print("Success: SQL is valid.")
+    try:
+        clone_schema(prod_engine, test_engine)
+        
+        generated_sql = state["generated_sql"]
+        print(f"Executing: {generated_sql}")
+        apply_sql_query(test_engine, generated_sql)
+        
+        print("Success: SQL is valid and applied to Sandbox.")
         return {"status": "success", "error_log": None}
-    else:
-        print("Error: SQL execution failed.")
+        
+    except Exception as e:
+        error_msg = str(e)
+        print(f"Error during testing: {error_msg}")
         return {
             "status": "failed", 
-            "error_log": "Syntax error at line 1...", 
-            "iterations": state["iterations"] + 1
+            "error_log": error_msg,
+            "iterations": state.get("iterations", 0) + 1 
         }
+    finally:
+        prod_engine.dispose()
+        test_engine.dispose()
 
 def deploy_node(state: AgentState):
     print("\n[Node: Deployment] Applying changes to Production DB...")

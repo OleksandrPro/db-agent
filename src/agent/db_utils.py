@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, MetaData
+from sqlalchemy import create_engine, MetaData, text
 from sqlalchemy.schema import CreateTable
 
 def get_engine(url: str):
@@ -23,3 +23,16 @@ def clear_database(engine):
     metadata.reflect(bind=engine)
     metadata.drop_all(bind=engine)
     print("Database cleared.")
+
+def clone_schema(source_engine, target_engine):
+    clear_database(target_engine)
+    
+    metadata = MetaData()
+    metadata.reflect(bind=source_engine)
+    
+    metadata.create_all(bind=target_engine)
+    print("Sandbox schema is ready.")
+
+def apply_sql_query(engine, sql_string: str):
+    with engine.begin() as conn:
+        conn.execute(text(sql_string))
