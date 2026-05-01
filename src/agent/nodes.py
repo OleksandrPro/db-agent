@@ -1,6 +1,4 @@
 from typing import Literal
-from sqlalchemy import create_engine, MetaData
-from sqlalchemy.schema import CreateTable
 from config import DatabaseConfig
 from agent.states import AgentState
 from agent.db_utils import get_engine, fetch_schema_metadata, metadata_to_ddl
@@ -10,7 +8,7 @@ def introspect_db_node(state: AgentState):
     print("\n[Node: Introspection] Reflecting Production DB schema...")
     
     engine = get_engine(DatabaseConfig.PROD_URL)
-    
+
     try:
         metadata = fetch_schema_metadata(engine)
         full_schema = metadata_to_ddl(engine, metadata)
