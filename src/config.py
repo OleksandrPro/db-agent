@@ -23,4 +23,4 @@ class DatabaseConfig:
     TEST_URL = f"postgresql://{TEST_DB_USER}:{TEST_DB_PASSWORD}@{TEST_DB_HOST}:{TEST_DB_PORT}/{TEST_DB_NAME}"
 
 class ApiKeys:
-    GOOGLE_API_KEY = os.getenv("TEST_DB_HOST")
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
