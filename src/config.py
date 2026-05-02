@@ -1,7 +1,26 @@
 import os
 from dotenv import load_dotenv
+from enum import Enum
+from utils.logging import setup_logger
+
+
+logger = setup_logger(__name__)
+
+class EnvironmentType(str, Enum):
+    TEST = "TEST"
+    DEV = "DEV"
+    PROD = "PROD"
 
 load_dotenv()
+
+class AppSettings: 
+    _env_raw = os.getenv("ENVIRONMENT", "TEST").upper()
+    
+    try:
+        ENVIRONMENT = EnvironmentType(_env_raw)
+    except ValueError:
+        logger.warning(f"Unknown ENVIRONMENT '{_env_raw}', falling back to DEV.")
+        ENVIRONMENT = EnvironmentType.DEV
 
 class DatabaseConfig:
     # Prod DB

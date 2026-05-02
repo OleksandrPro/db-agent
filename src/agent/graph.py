@@ -8,10 +8,9 @@ from agent.nodes import (
     deploy_node,
     should_continue
 )
-from agent.sql_generation.providers import MockSQLGenerator, GeminiSQLGenerator
+from agent.llm import get_sql_generation_llm
 
-generator_impl = MockSQLGenerator()
-generator_impl_2 = GeminiSQLGenerator()
+generator_impl = get_sql_generation_llm()
 bound_generate_node = partial(generate_sql_node, generator=generator_impl)
 
 
