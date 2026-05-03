@@ -1,5 +1,5 @@
 from sqlalchemy.exc import SQLAlchemyError
-from config import DatabaseConfig
+from config import settings
 from agent.states import AgentState
 from agent.status import NodeStatus
 from utils.db import (
@@ -19,7 +19,7 @@ logger = setup_logger(__name__)
 def introspect_db_node(state: AgentState):
     logger.info("Starting introspection...")
     
-    engine = get_engine(DatabaseConfig.PROD_URL)
+    engine = get_engine(settings.db_prod.url)
 
     try:
         metadata = fetch_schema_metadata(engine)
@@ -67,8 +67,8 @@ def generate_sql_node(state: AgentState, generator: SQLGenerator):
 def test_sql_node(state: AgentState):
     logger.info("Testing SQL in sandbox...")
     
-    prod_engine = get_engine(DatabaseConfig.PROD_URL)
-    test_engine = get_engine(DatabaseConfig.TEST_URL)
+    prod_engine = get_engine(settings.db_prod.url)
+    test_engine = get_engine(settings.db_test.url)
     
     try:
         clone_schema(prod_engine, test_engine)
@@ -151,7 +151,7 @@ def critic_node(state: AgentState, critic: SQLReviewer):
 def deploy_node(state: AgentState):
     logger.info("Deploying to production...")
     
-    prod_engine = get_engine(DatabaseConfig.PROD_URL)
+    prod_engine = get_engine(settings.db_prod.url)
     try:
         apply_sql_query(prod_engine, state["generated_sql"])
         logger.info("Deployment simulated successfully.")

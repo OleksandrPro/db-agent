@@ -1,4 +1,4 @@
-from config import AppSettings, EnvironmentType, Models, ApiKeys
+from config import settings, EnvironmentType
 from agent.sql_generation.protocol import SQLGenerator
 from agent.sql_generation.providers import MockSQLGenerator, GeminiSQLGenerator
 from agent.evaluation.protocol import SQLReviewer
@@ -10,7 +10,7 @@ from utils.logging import setup_logger
 logger = setup_logger(__name__)
 
 def get_sql_generation_llm() -> SQLGenerator:
-    env = AppSettings.ENVIRONMENT
+    env = settings.environment
     
     match env:
         case EnvironmentType.DEV:
@@ -20,19 +20,19 @@ def get_sql_generation_llm() -> SQLGenerator:
         case EnvironmentType.TEST:
             logger.info("Environment is TEST. Using GeminiSQLGenerator.")
             return GeminiSQLGenerator(
-                model_name=Models.GENERATOR_LLM_MODEL, 
-                api_key=ApiKeys.GOOGLE_API_KEY
+                model_name=settings.models.generator, 
+                api_key=settings.google_api_key
             )
         
         case EnvironmentType.PROD:
             logger.info("Environment is PROD. Using GeminiSQLGenerator.")
             return GeminiSQLGenerator(
-                model_name=Models.GENERATOR_LLM_MODEL, 
-                api_key=ApiKeys.GOOGLE_API_KEY
+                model_name=settings.models.generator, 
+                api_key=settings.google_api_key
             )
 
 def get_critic_llm() -> SQLReviewer:
-    env = AppSettings.ENVIRONMENT
+    env = settings.environment
     
     match env:
         case EnvironmentType.DEV:
@@ -41,12 +41,12 @@ def get_critic_llm() -> SQLReviewer:
         case EnvironmentType.TEST:
             logger.info("Environment is TEST. Using GeminiCritic.")
             return GeminiCritic(
-                model_name=Models.CRITIC_LLM_MODEL, 
-                api_key=ApiKeys.GOOGLE_API_KEY
+                model_name=settings.models.critic, 
+                api_key=settings.google_api_key
             )
         case EnvironmentType.PROD:
             logger.info("Environment is PROD. Using GeminiCritic.")
             return GeminiCritic(
-                model_name=Models.CRITIC_LLM_MODEL, 
-                api_key=ApiKeys.GOOGLE_API_KEY
+                model_name=settings.models.critic, 
+                api_key=settings.google_api_key
             )

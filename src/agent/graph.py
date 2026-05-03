@@ -11,7 +11,7 @@ from agent.nodes import (
     deploy_node
 )
 from agent.llm import get_sql_generation_llm, get_critic_llm
-from config import AppSettings
+from config import settings
 from utils.logging import setup_logger
 
 
@@ -43,8 +43,8 @@ def route_after_test(state: AgentState):
         case NodeStatus.TEST_SUCCESS:
             return GraphNode.CRITIC
             
-        case NodeStatus.TEST_FAILED_SQL if iterations < AppSettings.MAX_ITERATIONS:
-            logger.info(f"Routing back to generation (Attempt {iterations}/{AppSettings.MAX_ITERATIONS})...")
+        case NodeStatus.TEST_FAILED_SQL if iterations < settings.max_iterations:
+            logger.info(f"Routing back to generation (Attempt {iterations}/{settings.max_iterations})...")
             return GraphNode.GENERATE
             
         case NodeStatus.TEST_FAILED_SQL:
@@ -78,8 +78,8 @@ def route_after_critic(state: AgentState):
         case NodeStatus.CRITIC_APPROVED:
             return GraphNode.DEPLOY
             
-        case NodeStatus.CRITIC_REJECTED_INTENT | NodeStatus.CRITIC_REJECTED_SAFETY if iterations < AppSettings.MAX_ITERATIONS:
-            logger.info(f"Critic rejected: {status}. Routing back to generation (Attempt {iterations}/{AppSettings.MAX_ITERATIONS})...")
+        case NodeStatus.CRITIC_REJECTED_INTENT | NodeStatus.CRITIC_REJECTED_SAFETY if iterations < settings.max_iterations:
+            logger.info(f"Critic rejected: {status}. Routing back to generation (Attempt {iterations}/{settings.max_iterations})...")
             return GraphNode.GENERATE
             
         case NodeStatus.CRITIC_REJECTED_INTENT | NodeStatus.CRITIC_REJECTED_SAFETY:
@@ -112,8 +112,8 @@ def route_after_deploy(state: AgentState):
         case NodeStatus.DEPLOY_SUCCESS:
             return END
             
-        case NodeStatus.DEPLOY_FAILED_DATA_CONFLICT if iterations < AppSettings.MAX_ITERATIONS:
-            logger.info(f"Prod data conflict! Routing back to generation (Attempt {iterations}/{AppSettings.MAX_ITERATIONS})...")
+        case NodeStatus.DEPLOY_FAILED_DATA_CONFLICT if iterations < settings.max_iterations:
+            logger.info(f"Prod data conflict! Routing back to generation (Attempt {iterations}/{settings.max_iterations})...")
             return GraphNode.GENERATE
             
         case NodeStatus.DEPLOY_FAILED_DATA_CONFLICT:
