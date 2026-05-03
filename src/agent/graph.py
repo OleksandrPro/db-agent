@@ -38,7 +38,7 @@ def route_after_test(state: AgentState) -> Literal["deploy", "generate", "end"]:
         return "deploy"
         
     if status == "failed_sql" and iterations < AppSettings.MAX_ITERATIONS:
-        logger.info(f"Routing back to generation (Attempt {iterations}/3)...")
+        logger.info(f"Routing back to generation (Attempt {iterations}/{AppSettings.MAX_ITERATIONS})...")
         return "generate"
         
     if status == "failed_sql":
@@ -59,6 +59,31 @@ workflow.add_conditional_edges(
     }
 )
 
-workflow.add_edge("deploy", END)
+def route_after_deploy(state: AgentState) -> Literal["generate", "end"]:
+    status = state.get("status")
+    iterations = state.get("iterations", 0)
+    
+    if status == "deployed":
+        return "end"
+        
+    if status == "failed_sql_prod" and iterations < AppSettings.MAX_ITERATIONS:
+        logger.info(f"Prod data conflict! Routing back to generation (Attempt {iterations}/{AppSettings.MAX_ITERATIONS})...")
+        return "generate"
+        
+    if status == "failed_sql_prod":
+        logger.error("Max iterations reached on Prod errors. Stopping.")
+        return "end"
+        
+    logger.error(f"Fatal deploy error or unknown status: {status}. Stopping.")
+    return "end"
+
+workflow.add_conditional_edges(
+    "deploy",
+    route_after_deploy,
+    {
+        "generate": "generate",
+        "end": END
+    }
+)
 
 app = workflow.compile()

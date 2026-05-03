@@ -98,14 +98,27 @@ def deploy_node(state: AgentState):
     
     prod_engine = get_engine(DatabaseConfig.PROD_URL)
     try:
-        #apply_sql_query(prod_engine, state["generated_sql"])
+        apply_sql_query(prod_engine, state["generated_sql"])
         logger.info("Deployment simulated successfully.")
         return {"status": "deployed", "logs": ["Deployed to production."]}
     except SQLAlchemyError as e:
         # Error while applying sql-query to the prod db
         err_msg = str(e)
         logger.error(f"CRITICAL SQL DATA ERROR during deployment: {err_msg}")
-        return {"status": "failed_sql_prod", "error_log": err_msg, "logs": [f"Prod Data Error: {err_msg}"]}
+
+        extended_error_log = (
+            f"SYNTAX OK, BUT DATA CONFLICT: Your query successfully passed the Sandbox test "
+            f"(the syntax and schema are correct), but FAILED during Production deployment "
+            f"due to existing data. Production Error: {err_msg}. "
+            f"Please adjust the query to handle existing rows safely."
+        )
+
+        return {
+            "status": "failed_sql_prod", 
+            "error_log": extended_error_log,
+            "iterations": state.get("iterations", 0) + 1,
+            "logs": [f"Prod Data Error: {err_msg}"]
+        }
     except Exception as e:
         logger.error(f"CRITICAL ERROR during deployment: {e}")
         return {"status": "failed_deploy", "error_log": str(e)}
