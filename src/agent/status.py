@@ -5,6 +5,11 @@ class NodeStatus(str, Enum):
 
     TEST_SUCCESS = "successful_sandbox_test"
     TEST_FAILED_SQL = "failed_sql_sandbox"
+
+    CRITIC_APPROVED = "critic_approved"
+    CRITIC_REJECTED_INTENT = "critic_rejected_intent"
+    CRITIC_REJECTED_SAFETY = "critic_rejected_safety"
+    CRITIC_FAILED = "critic_system_error"
     
     DEPLOY_SUCCESS = "successful_prod_deploy"
     DEPLOY_FAILED_DATA_CONFLICT = "failed_prod_data_conflict"
