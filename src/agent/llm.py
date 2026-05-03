@@ -1,4 +1,4 @@
-from config import AppSettings, EnvironmentType
+from config import AppSettings, EnvironmentType, Models, ApiKeys
 from agent.sql_generation.protocol import SQLGenerator
 from agent.sql_generation.providers import MockSQLGenerator, GeminiSQLGenerator
 from agent.evaluation.protocol import SQLReviewer
@@ -19,14 +19,19 @@ def get_sql_generation_llm() -> SQLGenerator:
         
         case EnvironmentType.TEST:
             logger.info("Environment is TEST. Using GeminiSQLGenerator.")
-            return GeminiSQLGenerator()
+            return GeminiSQLGenerator(
+                model_name=Models.GENERATOR_LLM_MODEL, 
+                api_key=ApiKeys.GOOGLE_API_KEY
+            )
         
         case EnvironmentType.PROD:
             logger.info("Environment is PROD. Using GeminiSQLGenerator.")
-            return GeminiSQLGenerator()
+            return GeminiSQLGenerator(
+                model_name=Models.GENERATOR_LLM_MODEL, 
+                api_key=ApiKeys.GOOGLE_API_KEY
+            )
 
 def get_critic_llm() -> SQLReviewer:
-    """Фабрика для создания Агента-Критика."""
     env = AppSettings.ENVIRONMENT
     
     match env:
@@ -35,7 +40,13 @@ def get_critic_llm() -> SQLReviewer:
             return MockCritic()
         case EnvironmentType.TEST:
             logger.info("Environment is TEST. Using GeminiCritic.")
-            return GeminiCritic()
+            return GeminiCritic(
+                model_name=Models.CRITIC_LLM_MODEL, 
+                api_key=ApiKeys.GOOGLE_API_KEY
+            )
         case EnvironmentType.PROD:
             logger.info("Environment is PROD. Using GeminiCritic.")
-            return GeminiCritic()
+            return GeminiCritic(
+                model_name=Models.CRITIC_LLM_MODEL, 
+                api_key=ApiKeys.GOOGLE_API_KEY
+            )

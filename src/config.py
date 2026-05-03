@@ -45,3 +45,7 @@ class DatabaseConfig:
 
 class ApiKeys:
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+class Models:
+    GENERATOR_LLM_MODEL = os.getenv("GENERATOR_LLM_MODEL")
+    CRITIC_LLM_MODEL = os.getenv("CRITIC_LLM_MODEL")

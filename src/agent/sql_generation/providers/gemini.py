@@ -1,12 +1,11 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
-from config import ApiKeys
 from ..protocol import SQLGenerator
 
 class GeminiSQLGenerator:
-    def __init__(self):
+    def __init__(self, model_name: str, api_key: str):
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-pro",
-            google_api_key=ApiKeys.GOOGLE_API_KEY
+            model=model_name,
+            google_api_key=api_key
         )
 
     def generate(self, current_schema: str, user_input: str, error_log: str | None = None) -> str:

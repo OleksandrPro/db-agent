@@ -1,5 +1,4 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
-from config import ApiKeys
 from ..protocol import ReviewStatus, CriticReview
 from utils.logging import setup_logger
 
@@ -7,10 +6,10 @@ from utils.logging import setup_logger
 logger = setup_logger(__name__)
 
 class GeminiCritic:
-    def __init__(self):
+    def __init__(self, model_name: str, api_key: str):
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-pro",
-            google_api_key=ApiKeys.GOOGLE_API_KEY
+            model=model_name,
+            google_api_key=api_key
         ).with_structured_output(CriticReview)
 
     def review(self, user_prompt: str, original_schema: str, sandbox_schema: str, generated_sql: str) -> CriticReview:
