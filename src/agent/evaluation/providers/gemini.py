@@ -40,8 +40,13 @@ class GeminiCritic:
         """
         
         try:
+            logger.debug(f"[Critic] Sending prompt to LLM:\n{prompt}")
             logger.info("Critic is evaluating Intent and Safety...")
-            return self.llm.invoke(prompt)
+
+            response: CriticReview = self.llm.invoke(prompt)
+
+            logger.debug(f"[Critic] Structured Response: {response.model_dump()}")
+            return response
         except Exception as e:
             logger.error(f"Critic failed to analyze: {e}")
             return CriticReview(
