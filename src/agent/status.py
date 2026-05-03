@@ -1,0 +1,20 @@
+from enum import Enum
+
+class NodeStatus(str, Enum):
+    FAILED_EXTRACTION = "failed_db_schema_extraction"
+
+    TEST_SUCCESS = "successful_sandbox_test"
+    TEST_FAILED_SQL = "failed_sql_sandbox"
+    
+    DEPLOY_SUCCESS = "successful_prod_deploy"
+    DEPLOY_FAILED_DATA_CONFLICT = "failed_prod_data_conflict"
+    DEPLOY_FAILED_FATAL = "failed_prod_deploy_fatal"
+    
+    FATAL_SYSTEM_ERROR = "fatal_system_error"
+
+class GraphNode(str, Enum):
+    INTROSPECT = "introspect"
+    GENERATE = "generate"
+    TEST = "test"
+    CRITIC = "critic"
+    DEPLOY = "deploy"

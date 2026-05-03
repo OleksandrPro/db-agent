@@ -1,6 +1,7 @@
 from sqlalchemy.exc import SQLAlchemyError
 from config import DatabaseConfig
 from agent.states import AgentState
+from agent.status import NodeStatus
 from utils.db import (
     get_engine,
     fetch_schema_metadata,
@@ -25,11 +26,18 @@ def introspect_db_node(state: AgentState):
         
         msg = f"Reflected {len(metadata.tables)} tables."
         logger.info(msg)
-        return {"current_schema": full_schema, "logs": [msg]}
+        return {
+            "current_schema": full_schema,
+            "logs": [msg]
+        }
             
     except Exception as e:
         logger.error(f"Introspection failed: {e}")
-        return {"status": "failed", "error_log": str(e), "logs": [f"Error: {e}"]}
+        return {
+            "status": NodeStatus.FAILED_EXTRACTION,
+            "error_log": str(e),
+            "logs": [f"Error: {e}"]
+        }
     finally:
         engine.dispose()
 
@@ -47,7 +55,10 @@ def generate_sql_node(state: AgentState, generator: SQLGenerator):
         error_log=error_log
     )
     
-    return {"generated_sql": generated_sql, "logs": [f"SQL Generated{retry_msg}."]}
+    return {
+        "generated_sql": generated_sql,
+        "logs": [f"SQL Generated{retry_msg}."]
+    }
 
 def test_sql_node(state: AgentState):
     logger.info("Testing SQL in sandbox...")
@@ -67,7 +78,7 @@ def test_sql_node(state: AgentState):
         msg = "Sandbox test passed."
         logger.info(msg)
         return {
-            "status": "success", 
+            "status": NodeStatus.TEST_SUCCESS, 
             "sandbox_schema": sandbox_schema, 
             "error_log": None, 
             "logs": [msg]
@@ -76,7 +87,7 @@ def test_sql_node(state: AgentState):
         err_msg = str(e)
         logger.warning(f"SQL Test failed: {err_msg}")
         return {
-            "status": "failed_sql", 
+            "status": NodeStatus.TEST_FAILED_SQL, 
             "error_log": err_msg,
             "iterations": state.get("iterations", 0) + 1,
             "logs": [f"Test failed: {err_msg}"]
@@ -85,7 +96,7 @@ def test_sql_node(state: AgentState):
         err_msg = f"System error during sandbox setup: {e}"
         logger.error(err_msg)
         return {
-            "status": "fatal_system_error", 
+            "status": NodeStatus.FATAL_SYSTEM_ERROR, 
             "error_log": err_msg, 
             "logs": [err_msg]
         }
@@ -100,7 +111,7 @@ def deploy_node(state: AgentState):
     try:
         apply_sql_query(prod_engine, state["generated_sql"])
         logger.info("Deployment simulated successfully.")
-        return {"status": "deployed", "logs": ["Deployed to production."]}
+        return {"status": NodeStatus.DEPLOY_SUCCESS, "logs": ["Deployed to production."]}
     except SQLAlchemyError as e:
         # Error while applying sql-query to the prod db
         err_msg = str(e)
@@ -114,13 +125,17 @@ def deploy_node(state: AgentState):
         )
 
         return {
-            "status": "failed_sql_prod", 
+            "status": NodeStatus.DEPLOY_FAILED_DATA_CONFLICT, 
             "error_log": extended_error_log,
             "iterations": state.get("iterations", 0) + 1,
             "logs": [f"Prod Data Error: {err_msg}"]
         }
     except Exception as e:
         logger.error(f"CRITICAL ERROR during deployment: {e}")
-        return {"status": "failed_deploy", "error_log": str(e)}
+
+        return {
+            "status": NodeStatus.DEPLOY_FAILED_FATAL,
+            "error_log": str(e)
+        }
     finally:
         prod_engine.dispose()
