@@ -22,7 +22,7 @@ class AppSettings:
         logger.warning(f"Unknown ENVIRONMENT '{_env_raw}', falling back to DEV.")
         ENVIRONMENT = EnvironmentType.DEV
     
-    MAX_ITERATIONS = 3
+    MAX_ITERATIONS = int(os.getenv("MAX_ITERATIONS", 5))
 
 class DatabaseConfig:
     # Prod DB
