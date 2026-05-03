@@ -1,10 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from utils.logging import setup_logger
-
-
-logger = setup_logger(__name__)
 
 class EnvironmentType(str, Enum):
     TEST = "TEST"
