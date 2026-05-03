@@ -21,6 +21,8 @@ class AppSettings:
     except ValueError:
         logger.warning(f"Unknown ENVIRONMENT '{_env_raw}', falling back to DEV.")
         ENVIRONMENT = EnvironmentType.DEV
+    
+    MAX_ITERATIONS = 3
 
 class DatabaseConfig:
     # Prod DB

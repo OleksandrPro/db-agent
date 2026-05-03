@@ -1,4 +1,4 @@
-from typing import Literal
+from sqlalchemy.exc import SQLAlchemyError
 from config import DatabaseConfig
 from agent.states import AgentState
 from utils.db import (
@@ -36,11 +36,15 @@ def introspect_db_node(state: AgentState):
 def generate_sql_node(state: AgentState, generator: SQLGenerator):
     logger.info(f"Generating SQL for: {state['user_input']}")
 
-    retry_msg = f" (Retry {state['iterations']})" if state.get("iterations", 0) > 0 else ""
+    iterations = state.get("iterations", 0)
+    error_log = state.get("error_log")
+
+    retry_msg = f" (Retry {iterations})" if iterations > 0 else ""
 
     generated_sql = generator.generate(
         current_schema=state["current_schema"],
-        user_input=state["user_input"]
+        user_input=state["user_input"],
+        error_log=error_log
     )
     
     return {"generated_sql": generated_sql, "logs": [f"SQL Generated{retry_msg}."]}
@@ -55,20 +59,35 @@ def test_sql_node(state: AgentState):
         clone_schema(prod_engine, test_engine)
         
         generated_sql = state["generated_sql"]
-        print(f"Executing: {generated_sql}")
         apply_sql_query(test_engine, generated_sql)
+
+        sandbox_metadata = fetch_schema_metadata(test_engine)
+        sandbox_schema = metadata_to_ddl(test_engine, sandbox_metadata)
         
         msg = "Sandbox test passed."
         logger.info(msg)
-        return {"status": "success", "error_log": None, "logs": [msg]}
-    except Exception as e:
-        err_msg = str(e)
-        logger.warning(f"Test failed: {err_msg}")
         return {
-            "status": "failed", 
+            "status": "success", 
+            "sandbox_schema": sandbox_schema, 
+            "error_log": None, 
+            "logs": [msg]
+        }
+    except SQLAlchemyError as e:
+        err_msg = str(e)
+        logger.warning(f"SQL Test failed: {err_msg}")
+        return {
+            "status": "failed_sql", 
             "error_log": err_msg,
             "iterations": state.get("iterations", 0) + 1,
             "logs": [f"Test failed: {err_msg}"]
+        }
+    except Exception as e:
+        err_msg = f"System error during sandbox setup: {e}"
+        logger.error(err_msg)
+        return {
+            "status": "fatal_system_error", 
+            "error_log": err_msg, 
+            "logs": [err_msg]
         }
     finally:
         prod_engine.dispose()
@@ -79,18 +98,16 @@ def deploy_node(state: AgentState):
     
     prod_engine = get_engine(DatabaseConfig.PROD_URL)
     try:
-        apply_sql_query(prod_engine, state["generated_sql"])
+        #apply_sql_query(prod_engine, state["generated_sql"])
         logger.info("Deployment simulated successfully.")
         return {"status": "deployed", "logs": ["Deployed to production."]}
+    except SQLAlchemyError as e:
+        # Error while applying sql-query to the prod db
+        err_msg = str(e)
+        logger.error(f"CRITICAL SQL DATA ERROR during deployment: {err_msg}")
+        return {"status": "failed_sql_prod", "error_log": err_msg, "logs": [f"Prod Data Error: {err_msg}"]}
     except Exception as e:
         logger.error(f"CRITICAL ERROR during deployment: {e}")
         return {"status": "failed_deploy", "error_log": str(e)}
     finally:
         prod_engine.dispose()
-
-def should_continue(state: AgentState) -> Literal["deploy", "generate", "end"]:
-    if state["status"] == "success":
-        return "deploy"
-    if state["iterations"] < 3:
-        return "generate"
-    return "end"
