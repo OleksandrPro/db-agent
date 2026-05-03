@@ -3,8 +3,8 @@ services:
     volumes:
       - ./src:/app/src
     environment:
-      - DB_HOST=db-prod
-      - TEST_DB_HOST=db-test
+      - DB_PROD__HOST=db-prod
+      - DB_TEST__HOST=db-test
     depends_on:
       - db-prod
     stdin_open: true
@@ -13,9 +13,9 @@ services:
   db-prod:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_PROD__USER}
+      POSTGRES_PASSWORD: ${DB_PROD__PASSWORD}
+      POSTGRES_DB: ${DB_PROD__NAME}
     ports:
       - "${EXTERNAL_PROD_PORT}:5432"
     volumes:

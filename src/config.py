@@ -1,47 +1,41 @@
-import os
-from dotenv import load_dotenv
 from enum import Enum
-from utils.logging import setup_logger
-
-
-logger = setup_logger(__name__)
+from pydantic import BaseModel, SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class EnvironmentType(str, Enum):
     TEST = "TEST"
     DEV = "DEV"
     PROD = "PROD"
 
-load_dotenv()
+class DatabaseSettings(BaseModel):
+    user: str
+    password: SecretStr
+    host: str
+    port: int = 5432
+    name: str
 
-class AppSettings: 
-    _env_raw = os.getenv("ENVIRONMENT", "TEST").upper()
-    
-    try:
-        ENVIRONMENT = EnvironmentType(_env_raw)
-    except ValueError:
-        logger.warning(f"Unknown ENVIRONMENT '{_env_raw}', falling back to DEV.")
-        ENVIRONMENT = EnvironmentType.DEV
-    
-    MAX_ITERATIONS = 3
+    @property
+    def url(self) -> str:
+        return f"postgresql://{self.user}:{self.password.get_secret_value()}@{self.host}:{self.port}/{self.name}"
 
-class DatabaseConfig:
-    # Prod DB
-    DB_USER = os.getenv("DB_USER")
-    DB_PASSWORD = os.getenv("DB_PASSWORD")
-    DB_HOST = os.getenv("DB_HOST")
-    DB_PORT = os.getenv("DB_PORT")
-    DB_NAME = os.getenv("DB_NAME")
-    
-    PROD_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+class LLMSettings(BaseModel):
+    generator: str = "gemini-1.5-pro"
+    critic: str = "gemini-1.5-pro"
 
-    # Sandbox DB
-    TEST_DB_USER = os.getenv("TEST_DB_USER")
-    TEST_DB_PASSWORD = os.getenv("TEST_DB_PASSWORD")
-    TEST_DB_NAME = os.getenv("TEST_DB_NAME")
-    TEST_DB_PORT = os.getenv("TEST_DB_PORT")
-    TEST_DB_HOST = os.getenv("TEST_DB_HOST")
+class AppSettings(BaseSettings):
+    environment: EnvironmentType = EnvironmentType.DEV
+    max_iterations: int = 5
+    google_api_key: SecretStr
 
-    TEST_URL = f"postgresql://{TEST_DB_USER}:{TEST_DB_PASSWORD}@{TEST_DB_HOST}:{TEST_DB_PORT}/{TEST_DB_NAME}"
+    db_prod: DatabaseSettings
+    db_test: DatabaseSettings
+    models: LLMSettings = LLMSettings()
 
-class ApiKeys:
-    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    model_config = SettingsConfigDict(
+        env_nested_delimiter="__",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+
+settings = AppSettings()
