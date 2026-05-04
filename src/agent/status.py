@@ -1,6 +1,9 @@
 from enum import Enum
 
 class NodeStatus(str, Enum):
+    CLASSIFIER_PROCEED = "classifier_proceed"
+    CLASSIFIER_OFF_TOPIC = "classifier_off_topic"
+    
     FAILED_EXTRACTION = "failed_db_schema_extraction"
 
     TEST_SUCCESS = "successful_sandbox_test"
@@ -18,6 +21,7 @@ class NodeStatus(str, Enum):
     FATAL_SYSTEM_ERROR = "fatal_system_error"
 
 class GraphNode(str, Enum):
+    CLASSIFY = "classify"
     INTROSPECT = "introspect"
     GENERATE = "generate"
     TEST = "test"

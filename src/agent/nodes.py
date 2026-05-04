@@ -9,12 +9,30 @@ from utils.db import (
     clone_schema,
     apply_sql_query
 )
+from agent.classifier.protocol import PromptClassifier, ClassificationStatus
 from agent.sql_generation.protocol import SQLGenerator
 from agent.evaluation.protocol import SQLReviewer, ReviewStatus
 from utils.logging import setup_logger
 
 
 logger = setup_logger(__name__)
+
+def classify_node(state: AgentState, classifier: PromptClassifier):
+    logger.info("Classifying user request...")
+    user_input = state.get("user_input")
+    
+    result = classifier.classify(user_input)
+    
+    if result.status == ClassificationStatus.PROCEED:
+        new_status = NodeStatus.CLASSIFIER_PROCEED
+    else:
+        new_status = NodeStatus.CLASSIFIER_OFF_TOPIC
+
+    return {
+        "status": new_status,
+        "classification_reasoning": result.reasoning,
+        "classification_message": result.message
+    }
 
 def introspect_db_node(state: AgentState):
     logger.info("Starting introspection...")

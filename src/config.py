@@ -2,6 +2,8 @@ from enum import Enum
 from pydantic import BaseModel, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+
 class EnvironmentType(str, Enum):
     TEST = "TEST"
     DEV = "DEV"
@@ -19,8 +21,9 @@ class DatabaseSettings(BaseModel):
         return f"postgresql://{self.user}:{self.password.get_secret_value()}@{self.host}:{self.port}/{self.name}"
 
 class LLMSettings(BaseModel):
-    generator: str = "gemini-1.5-pro"
-    critic: str = "gemini-1.5-pro"
+    generator: str = DEFAULT_GEMINI_MODEL
+    critic: str = DEFAULT_GEMINI_MODEL
+    classifier: str = DEFAULT_GEMINI_MODEL
 
 class AppSettings(BaseSettings):
     environment: EnvironmentType = EnvironmentType.DEV
