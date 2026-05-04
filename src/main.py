@@ -1,8 +1,11 @@
 from agent.graph import app
+from utils.logging import setup_logger
 
+
+logger = setup_logger(__name__)
 
 if __name__ == "__main__":
-    print("=== DB-Agent MVP (Stub Version) ===")
+    logger.info("=== DB-Agent MVP (Agent Workflow) ===")
     user_prompt = input("What DB change do you need? ")
     
     inputs = {
@@ -13,4 +16,4 @@ if __name__ == "__main__":
     
     for output in app.stream(inputs):
         for key, value in output.items():
-            print(f"--- Node '{key}' finished ---")
+            logger.info(f"--- Node '{key}' finished ---")

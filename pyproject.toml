@@ -9,5 +9,6 @@ dependencies = [
     "langchain-google-genai>=4.2.2",
     "langgraph>=1.1.10",
     "psycopg2-binary>=2.9.12",
+    "pydantic-settings>=2.14.0",
     "sqlalchemy>=2.0.49",
 ]
