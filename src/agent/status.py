@@ -4,6 +4,7 @@ class NodeStatus(str, Enum):
     CLASSIFIER_PROCEED = "classifier_proceed"
     CLASSIFIER_OFF_TOPIC = "classifier_off_topic"
     
+    SUCCESSFUL_EXTRACTION = "successful_db_schema_extraction"
     FAILED_EXTRACTION = "failed_db_schema_extraction"
 
     TEST_SUCCESS = "successful_sandbox_test"

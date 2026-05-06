@@ -44,7 +44,7 @@ workflow.add_node(GraphNode.DEPLOY, deploy_node)
 workflow.add_edge(START, GraphNode.CLASSIFY)
 
 def route_after_classification(state: AgentState):
-    status = state.get("status")
+    status = state.status
     
     if status == NodeStatus.CLASSIFIER_PROCEED:
         return GraphNode.INTROSPECT
@@ -71,8 +71,8 @@ workflow.add_edge(GraphNode.INTROSPECT, GraphNode.GENERATE)
 workflow.add_edge(GraphNode.GENERATE, GraphNode.TEST)
 
 def route_after_test(state: AgentState):
-    status = state.get("status")
-    iterations = state.get("iterations", 0)
+    status = state.status
+    iterations = state.iterations
     
     match status:
         case NodeStatus.TEST_SUCCESS:
@@ -106,8 +106,8 @@ workflow.add_conditional_edges(
 )
 
 def route_after_critic(state: AgentState):
-    status = state.get("status")
-    iterations = state.get("iterations", 0)
+    status = state.status
+    iterations = state.iterations
     
     match status:
         case NodeStatus.CRITIC_APPROVED:
@@ -140,7 +140,7 @@ workflow.add_conditional_edges(
 )
 
 def route_after_human(state: AgentState):
-    status = state.get("status")
+    status = state.status
     
     match status:
         case NodeStatus.HUMAN_APPROVED:
@@ -168,8 +168,8 @@ workflow.add_conditional_edges(
 )
 
 def route_after_deploy(state: AgentState):
-    status = state.get("status")
-    iterations = state.get("iterations", 0)
+    status = state.status
+    iterations = state.iterations
     
     match status:
         case NodeStatus.DEPLOY_SUCCESS:
