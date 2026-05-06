@@ -1,6 +1,8 @@
 from enum import Enum
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 class EnvironmentType(str, Enum):
     TEST = "TEST"
@@ -19,12 +21,20 @@ class DatabaseSettings(BaseModel):
         return f"postgresql://{self.user}:{self.password.get_secret_value()}@{self.host}:{self.port}/{self.name}"
 
 class LLMSettings(BaseModel):
-    generator: str = "gemini-1.5-pro"
-    critic: str = "gemini-1.5-pro"
+    generator: str = DEFAULT_GEMINI_MODEL
+    critic: str = DEFAULT_GEMINI_MODEL
+    classifier: str = DEFAULT_GEMINI_MODEL
 
 class AppSettings(BaseSettings):
     environment: EnvironmentType = EnvironmentType.DEV
     max_iterations: int = 5
+
+    @field_validator("max_iterations")
+    def validate_max_iterations(cls, value):
+        if not value >= 1:
+            raise ValueError("max_iterations must be greater than or equal to 1")
+        return value
+
     google_api_key: SecretStr
 
     db_prod: DatabaseSettings

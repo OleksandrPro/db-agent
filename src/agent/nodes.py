@@ -1,4 +1,5 @@
 from sqlalchemy.exc import SQLAlchemyError
+from langgraph.types import interrupt
 from config import settings
 from agent.states import AgentState
 from agent.status import NodeStatus
@@ -9,12 +10,42 @@ from utils.db import (
     clone_schema,
     apply_sql_query
 )
+from agent.classifier.protocol import PromptClassifier, ClassificationStatus
 from agent.sql_generation.protocol import SQLGenerator
 from agent.evaluation.protocol import SQLReviewer, ReviewStatus
+from agent.responses import (
+    ClassificationUpdate,
+    IntrospectionUpdate,
+    SQLGenerationUpdate,
+    TestSQLUpdate,
+    CriticUpdate,
+    HumanReviewUpdate,
+    DeployUpdate,
+    HumanInterruptResponse
+)
 from utils.logging import setup_logger
 
 
 logger = setup_logger(__name__)
+
+def classify_node(state: AgentState, classifier: PromptClassifier):
+    logger.info("Classifying user request...")
+    user_input = state.user_input
+    
+    result = classifier.classify(user_input)
+    
+    if result.status == ClassificationStatus.PROCEED:
+        new_status = NodeStatus.CLASSIFIER_PROCEED
+    else:
+        new_status = NodeStatus.CLASSIFIER_OFF_TOPIC
+
+    update = ClassificationUpdate(
+        status=new_status,
+        classification_reasoning=result.reasoning,
+        classification_message=result.message
+    )
+
+    return update
 
 def introspect_db_node(state: AgentState):
     logger.info("Starting introspection...")
@@ -27,42 +58,50 @@ def introspect_db_node(state: AgentState):
         
         msg = f"Reflected {len(metadata.tables)} tables."
         logger.info(msg)
-        return {
-            "current_schema": full_schema,
-            "logs": [msg]
-        }
+        update = IntrospectionUpdate(
+            status=NodeStatus.SUCCESSFUL_EXTRACTION,
+            current_schema=full_schema,
+            error_log=None,
+            logs=[msg]
+        )
+        return update
             
     except Exception as e:
         logger.error(f"Introspection failed: {e}")
-        return {
-            "status": NodeStatus.FAILED_EXTRACTION,
-            "error_log": str(e),
-            "logs": [f"Error: {e}"]
-        }
+
+        update = IntrospectionUpdate(
+            status=NodeStatus.FAILED_EXTRACTION,
+            error_log=str(e),
+            logs=[f"Error: {e}"]
+        )
+
+        return update
     finally:
         engine.dispose()
 
 def generate_sql_node(state: AgentState, generator: SQLGenerator):
-    current_iteration = state.get("iterations", 0) + 1
+    current_iteration = state.iterations + 1
 
-    logger.info(f"Generating SQL for: {state['user_input']}")
+    logger.info(f"Generating SQL for: {state.user_input}")
 
-    iterations = state.get("iterations", 0)
-    error_log = state.get("error_log")
+    iterations = state.iterations
+    error_log = state.error_log
 
     retry_msg = f" (Retry {iterations})" if iterations > 0 else ""
 
     generated_sql = generator.generate(
-        current_schema=state["current_schema"],
-        user_input=state["user_input"],
+        current_schema=state.current_schema,
+        user_input=state.user_input,
         error_log=error_log
     )
     
-    return {
-        "generated_sql": generated_sql,
-        "iterations": current_iteration,
-        "logs": [f"SQL Generated{retry_msg}."]
-    }
+    update = SQLGenerationUpdate(
+        generated_sql=generated_sql,
+        iterations=current_iteration,
+        logs=[f"SQL Generated{retry_msg}."]
+    )
+
+    return update
 
 def test_sql_node(state: AgentState):
     logger.info("Testing SQL in sandbox...")
@@ -73,7 +112,7 @@ def test_sql_node(state: AgentState):
     try:
         clone_schema(prod_engine, test_engine)
         
-        generated_sql = state["generated_sql"]
+        generated_sql = state.generated_sql
         apply_sql_query(test_engine, generated_sql)
 
         sandbox_metadata = fetch_schema_metadata(test_engine)
@@ -81,28 +120,39 @@ def test_sql_node(state: AgentState):
         
         msg = "Sandbox test passed."
         logger.info(msg)
-        return {
-            "status": NodeStatus.TEST_SUCCESS, 
-            "sandbox_schema": sandbox_schema, 
-            "error_log": None, 
-            "logs": [msg]
-        }
+
+        update = TestSQLUpdate(
+            status=NodeStatus.TEST_SUCCESS,
+            sandbox_schema=sandbox_schema,
+            error_log=None,
+            logs=[msg]
+        )
+
+        return update
+    
     except SQLAlchemyError as e:
         err_msg = str(e)
         logger.warning(f"SQL Test failed: {err_msg}")
-        return {
-            "status": NodeStatus.TEST_FAILED_SQL, 
-            "error_log": err_msg,
-            "logs": [f"Test failed: {err_msg}"]
-        }
+
+        update = TestSQLUpdate(
+            status=NodeStatus.TEST_FAILED_SQL,
+            error_log=err_msg,
+            logs=[f"Test failed: {err_msg}"]
+        )
+
+        return update
+    
     except Exception as e:
         err_msg = f"System error during sandbox setup: {e}"
         logger.error(err_msg)
-        return {
-            "status": NodeStatus.FATAL_SYSTEM_ERROR, 
-            "error_log": err_msg, 
-            "logs": [err_msg]
-        }
+        update = TestSQLUpdate(
+            status=NodeStatus.FATAL_SYSTEM_ERROR,
+            error_log=err_msg,
+            logs=[err_msg]
+        )
+
+        return update
+
     finally:
         prod_engine.dispose()
         test_engine.dispose()
@@ -111,51 +161,110 @@ def critic_node(state: AgentState, critic: SQLReviewer):
     logger.info("Critic is reviewing the migration...")
     
     review_result = critic.review(
-        user_prompt=state["user_input"],
-        original_schema=state["current_schema"],
-        sandbox_schema=state["sandbox_schema"],
-        generated_sql=state["generated_sql"]
+        user_prompt=state.user_input,
+        original_schema=state.current_schema,
+        sandbox_schema=state.sandbox_schema,
+        generated_sql=state.generated_sql
     )
     
     if review_result.status == ReviewStatus.APPROVED:
         msg = "Critic approved the migration. It is safe and accurate."
         logger.info(msg)
-        return {
-            "status": NodeStatus.CRITIC_APPROVED,
-            "error_log": None,
-            "logs": [msg]
-        }
+
+        update = CriticUpdate(
+            status=NodeStatus.CRITIC_APPROVED,
+            error_log=None,
+            logs=[msg]
+        )
+
+        return update
         
     elif review_result.status == ReviewStatus.REJECTED_INTENT:
         err_msg = f"CRITIC REJECTED (Intent mismatch): {review_result.feedback}"
         logger.warning(err_msg)
-        return {
-            "status": NodeStatus.CRITIC_REJECTED_INTENT,
-            "error_log": err_msg,
-            "logs": [err_msg]
-        }
+
+        update = CriticUpdate(
+            status=NodeStatus.CRITIC_REJECTED_INTENT,
+            error_log=err_msg,
+            logs=[err_msg]
+        )
+
+        return update
         
     elif review_result.status == ReviewStatus.REJECTED_SAFETY:
         err_msg = f"CRITIC REJECTED (Safety hazard): {review_result.feedback}"
         logger.warning(err_msg)
-        return {
-            "status": NodeStatus.CRITIC_REJECTED_SAFETY,
-            "error_log": err_msg,
-            "logs": [err_msg]
-        }
+
+        update = CriticUpdate(
+            status=NodeStatus.CRITIC_REJECTED_SAFETY,
+            error_log=err_msg,
+            logs=[err_msg]
+        )
+
+        return update
+    
     else:
         err_msg = f"Critic failed to provide a valid review: {review_result.feedback}"
         logger.error(err_msg)
-        return {"status": NodeStatus.CRITIC_FAILED, "error_log": err_msg, "logs": [err_msg]}
+
+        update = CriticUpdate(
+            status=NodeStatus.CRITIC_FAILED,
+            error_log=err_msg,
+            logs=[err_msg]
+        )
+
+        return update
+
+def human_review_node(state: AgentState):
+    review_data = {
+        "sql": state.generated_sql,
+        "iterations_spent": state.iterations,
+        "critic_logs": state.logs[-1] if state.logs else "No logs",
+        "is_stalemate": state.iterations >= settings.max_iterations
+    }
+
+    raw_answer = interrupt(review_data)
+
+    answer = HumanInterruptResponse(**raw_answer)
+
+    if answer.action == "approve":
+        update = HumanReviewUpdate(
+            status=NodeStatus.HUMAN_APPROVED,
+            human_feedback=None
+        )
+
+        return update
+    
+    if answer.action == "reject":
+        feedback_msg = f"HUMAN REVIEW FAILED: {answer.get('feedback')}"
+        
+        update = HumanReviewUpdate(
+            status=NodeStatus.HUMAN_REJECTED_WITH_FEEDBACK,
+            human_feedback=answer.feedback,
+            error_log=feedback_msg,
+            logs=[feedback_msg],
+            iterations=max(0, state.iterations - 1) 
+        )
+
+        return update
+
+    return HumanReviewUpdate(status=NodeStatus.HUMAN_ABORT)
 
 def deploy_node(state: AgentState):
     logger.info("Deploying to production...")
     
     prod_engine = get_engine(settings.db_prod.url)
     try:
-        apply_sql_query(prod_engine, state["generated_sql"])
+        apply_sql_query(prod_engine, state.generated_sql)
         logger.info("Deployment simulated successfully.")
-        return {"status": NodeStatus.DEPLOY_SUCCESS, "logs": ["Deployed to production."]}
+
+        update = DeployUpdate(
+            status=NodeStatus.DEPLOY_SUCCESS,
+            logs=["Deployed to production."]
+        )
+
+        return update
+    
     except SQLAlchemyError as e:
         # Error while applying sql-query to the prod db
         err_msg = str(e)
@@ -168,17 +277,23 @@ def deploy_node(state: AgentState):
             f"Please adjust the query to handle existing rows safely."
         )
 
-        return {
-            "status": NodeStatus.DEPLOY_FAILED_DATA_CONFLICT, 
-            "error_log": extended_error_log,
-            "logs": [f"Prod Data Error: {err_msg}"]
-        }
+        update = DeployUpdate(
+            status=NodeStatus.DEPLOY_FAILED_DATA_CONFLICT, 
+            error_log=extended_error_log,
+            logs=[f"Prod Data Error: {err_msg}"]
+        )
+
+        return update
+
     except Exception as e:
         logger.error(f"CRITICAL ERROR during deployment: {e}")
 
-        return {
-            "status": NodeStatus.DEPLOY_FAILED_FATAL,
-            "error_log": str(e)
-        }
+        update = DeployUpdate(
+            status=NodeStatus.DEPLOY_FAILED_FATAL,
+            error_log=str(e)
+        )
+
+        return update
+    
     finally:
         prod_engine.dispose()
