@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
@@ -28,6 +28,12 @@ class LLMSettings(BaseModel):
 class AppSettings(BaseSettings):
     environment: EnvironmentType = EnvironmentType.DEV
     max_iterations: int = 5
+
+    @field_validator
+    def validate_max_iterations(cls, value):
+        if not value >= 1:
+            raise ValueError("max_iterations must be greater than or equal to 1")
+
     google_api_key: SecretStr
 
     db_prod: DatabaseSettings
