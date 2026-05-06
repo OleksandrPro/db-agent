@@ -1,12 +1,10 @@
 from config import settings, EnvironmentType
 from agent.classifier.protocol import PromptClassifier
-from agent.classifier.providers.mock import MockClassifier
-from agent.classifier.providers.gemini import GeminiClassifier
+from agent.classifier.providers import MockClassifier, GeminiClassifier
 from agent.sql_generation.protocol import SQLGenerator
 from agent.sql_generation.providers import MockSQLGenerator, GeminiSQLGenerator
 from agent.evaluation.protocol import SQLReviewer
-from agent.evaluation.providers.mock import MockCritic
-from agent.evaluation.providers.gemini import GeminiCritic
+from agent.evaluation.providers import MockCritic, GeminiCritic
 from utils.logging import setup_logger
 
 
