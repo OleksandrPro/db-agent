@@ -29,10 +29,11 @@ class AppSettings(BaseSettings):
     environment: EnvironmentType = EnvironmentType.DEV
     max_iterations: int = 5
 
-    @field_validator
+    @field_validator("max_iterations")
     def validate_max_iterations(cls, value):
         if not value >= 1:
             raise ValueError("max_iterations must be greater than or equal to 1")
+        return value
 
     google_api_key: SecretStr
 
