@@ -4,14 +4,16 @@ An AI-driven agent designed to autonomously manage, generate, and safely test da
 
 **Academic Context:** This project is being developed as part of a university diploma thesis. It explores the application of Agentic AI workflows in the domain of Database Administration and automated schema evolution.
 
-## Current Features (MVP 2.0)
+## Current Features (MVP 3.0)
 Currently, the agent operates as a safe, linear pipeline (preparing for a transition to a non-deterministic Agentic ReAct architecture):
-1. **Introspection:** Connects to the Production Database and extracts the current schema via SQLAlchemy.
-2. **Generation:** Produces raw SQL migrations using Gemini. It is context-aware, receiving both the schema and previous error logs if a fix is required.
-3. **Sandbox Testing:** Clones the production schema to an isolated Sandbox DB and safely tests the generated SQL to prevent syntax or constraint errors.
-4. **Self-Healing Loop::** If the Sandbox test fails, the agent automatically routes back to the Generation node, passing the database error log for autonomous correction.
-5. **Critic Review (Semantic Guardrail):** A secondary LLM node acts as a Senior DBA. It performs a "Double-Check" on Intent (did we do what the user asked?) and Safety (will this cause data loss on real production data?).
-6. **Deployment:** Only after passing both Sandbox tests and Critic approval, the agent applies the migration to the Production DB.
+1. **Classification:** Analyzes the user's prompt to determine if it is a valid database migration request or an off-topic query, preventing unnecessary execution.
+2. **Introspection:** Connects to the Production Database and extracts the current schema via SQLAlchemy.
+3. **Generation:** Produces raw SQL migrations using Gemini. It is context-aware, receiving both the schema and previous error logs if a fix is required.
+4. **Sandbox Testing:** Clones the production schema to an isolated Sandbox DB and safely tests the generated SQL to prevent syntax or constraint errors.
+5. **Self-Healing Loop::** If the Sandbox test fails, the agent automatically routes back to the Generation node, passing the database error log for autonomous correction.
+6. **Critic Review (Semantic Guardrail):** A secondary LLM node acts as a Senior DBA. It performs a "Double-Check" on Intent (did we do what the user asked?) and Safety (will this cause data loss on real production data?).
+7. **Human-in-the-Loop (HITL):** Safely pauses the execution graph via interrupts before applying changes to production. The human operator can approve the migration, abort it entirely, or provide text feedback (reject), which sends the agent back to the Generation step to refine the SQL based on the human's input.
+8. **Deployment:** Only after passing both Sandbox tests and Critic approval, the agent applies the migration to the Production DB.
 
 ## Setup for Local Development
 
@@ -78,6 +80,9 @@ Currently, the agent operates as a safe, linear pipeline (preparing for a transi
     Note: In the current stub version, the agent will ask for your prompt in the terminal and execute the pipeline.
 
 
-## Next Steps (MVP 3.0 Roadmap)
+## Next Steps (MVP 4.0 Roadmap)
 
-**Human-in-the-Loop:** Pause the execution graph before production deployment to await human approval via CLI/API.
+**Transition to a Full Tool-Calling Agent:** 
+* **State Overhaul:** Introduce LangChain's `messages` state to provide the LLM with full conversational memory and action history.
+* **Tool Integration:** Convert rigid pipeline nodes (Introspection, Sandbox Testing, HITL) into independent LangChain `@tool` functions.
+* **Autonomous Routing (ReAct):** Replace the deterministic, hard-coded Workflow (StateGraph) with a dynamic Agent architecture where the Gemini model autonomously decides which tools to call, interprets their outputs, and determines when the final migration is ready for human review.
