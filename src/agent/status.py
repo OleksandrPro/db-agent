@@ -13,6 +13,10 @@ class NodeStatus(str, Enum):
     CRITIC_REJECTED_INTENT = "critic_rejected_intent"
     CRITIC_REJECTED_SAFETY = "critic_rejected_safety"
     CRITIC_FAILED = "critic_system_error"
+
+    HUMAN_APPROVED = "human_approved"
+    HUMAN_REJECTED_WITH_FEEDBACK = "human_rejected_with_feedback"
+    HUMAN_ABORT = "human_abort"
     
     DEPLOY_SUCCESS = "successful_prod_deploy"
     DEPLOY_FAILED_DATA_CONFLICT = "failed_prod_data_conflict"
@@ -26,4 +30,5 @@ class GraphNode(str, Enum):
     GENERATE = "generate"
     TEST = "test"
     CRITIC = "critic"
+    HUMAN_REVIEW = "human_review"
     DEPLOY = "deploy"

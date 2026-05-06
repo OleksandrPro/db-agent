@@ -1,6 +1,6 @@
-from typing import Literal
 from functools import partial 
 from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import MemorySaver
 from agent.states import AgentState
 from agent.status import NodeStatus, GraphNode
 from agent.nodes import (
@@ -9,6 +9,7 @@ from agent.nodes import (
     generate_sql_node,
     test_sql_node,
     critic_node,
+    human_review_node,
     deploy_node
 )
 from agent.llm import (
@@ -37,6 +38,7 @@ workflow.add_node(GraphNode.INTROSPECT, introspect_db_node)
 workflow.add_node(GraphNode.GENERATE, bound_generate_node)
 workflow.add_node(GraphNode.TEST, test_sql_node)
 workflow.add_node(GraphNode.CRITIC, bound_critic_node)
+workflow.add_node(GraphNode.HUMAN_REVIEW, human_review_node)
 workflow.add_node(GraphNode.DEPLOY, deploy_node)
 
 workflow.add_edge(START, GraphNode.CLASSIFY)
@@ -109,18 +111,18 @@ def route_after_critic(state: AgentState):
     
     match status:
         case NodeStatus.CRITIC_APPROVED:
-            return GraphNode.DEPLOY
+            return GraphNode.HUMAN_REVIEW
             
-        case NodeStatus.CRITIC_REJECTED_INTENT | NodeStatus.CRITIC_REJECTED_SAFETY if iterations < settings.max_iterations:
-            logger.info(f"Critic rejected: {status}. Routing back to generation (Attempt {iterations}/{settings.max_iterations})...")
-            return GraphNode.GENERATE
+        case _ if iterations >= settings.max_iterations:
+            logger.warning("Max iterations reached. Routing to Human Review for stalemate resolution.")
+            return GraphNode.HUMAN_REVIEW
             
         case NodeStatus.CRITIC_REJECTED_INTENT | NodeStatus.CRITIC_REJECTED_SAFETY:
-            logger.error("Max iterations reached after Critic rejection. Stopping.")
-            return END
+            logger.info(f"Routing back to generation (Attempt {iterations}/{settings.max_iterations})...")
+            return GraphNode.GENERATE
         
         case NodeStatus.CRITIC_FAILED:
-            logger.error("CRITIC AGENT FAILED to process the review (e.g., API error, parsing failure). Halting workflow.")
+            logger.error("Critic system failure.")
             return END
             
         case _:
@@ -130,6 +132,34 @@ def route_after_critic(state: AgentState):
 workflow.add_conditional_edges(
     GraphNode.CRITIC,
     route_after_critic,
+    {
+        GraphNode.HUMAN_REVIEW: GraphNode.HUMAN_REVIEW,
+        GraphNode.GENERATE: GraphNode.GENERATE,
+        END: END
+    }
+)
+
+def route_after_human(state: AgentState):
+    status = state.get("status")
+    
+    match status:
+        case NodeStatus.HUMAN_APPROVED:
+            return GraphNode.DEPLOY
+            
+        case NodeStatus.HUMAN_REJECTED_WITH_FEEDBACK:
+            logger.info("Human provided feedback. Returning to generation.")
+            return GraphNode.GENERATE
+            
+        case NodeStatus.HUMAN_ABORT:
+            logger.info("Migration aborted by human.")
+            return END
+            
+        case _:
+            return END
+
+workflow.add_conditional_edges(
+    GraphNode.HUMAN_REVIEW,
+    route_after_human,
     {
         GraphNode.DEPLOY: GraphNode.DEPLOY,
         GraphNode.GENERATE: GraphNode.GENERATE,
@@ -170,4 +200,5 @@ workflow.add_conditional_edges(
     }
 )
 
-app = workflow.compile()
+memory = MemorySaver()
+app = workflow.compile(checkpointer=memory)

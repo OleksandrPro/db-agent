@@ -1,4 +1,5 @@
 from sqlalchemy.exc import SQLAlchemyError
+from langgraph.types import interrupt
 from config import settings
 from agent.states import AgentState
 from agent.status import NodeStatus
@@ -165,6 +166,37 @@ def critic_node(state: AgentState, critic: SQLReviewer):
         err_msg = f"Critic failed to provide a valid review: {review_result.feedback}"
         logger.error(err_msg)
         return {"status": NodeStatus.CRITIC_FAILED, "error_log": err_msg, "logs": [err_msg]}
+
+def human_review_node(state: AgentState):
+    review_data = {
+        "sql": state["generated_sql"],
+        "iterations_spent": state["iterations"],
+        "critic_logs": state["logs"][-1] if state["logs"] else "No logs",
+        "is_stalemate": state["iterations"] >= settings.max_iterations
+    }
+
+    # Когда мы возобновим работу через Command(resume=X), 
+    # значение X попадет в переменную answer
+    answer = interrupt(review_data)
+
+    # answer может быть словарем: {"action": "approve"} или {"action": "reject", "feedback": "..."}
+    if answer.get("action") == "approve":
+        return {
+            "status": NodeStatus.HUMAN_APPROVED,
+            "human_feedback": None
+        }
+    
+    if answer.get("action") == "reject":
+        feedback_msg = f"HUMAN REVIEW FAILED: {answer.get('feedback')}"
+        return {
+            "status": NodeStatus.HUMAN_REJECTED_WITH_FEEDBACK,
+            "human_feedback": answer.get("feedback"),
+            "error_log": feedback_msg,
+            "logs": [feedback_msg],
+            "iterations": max(0, state["iterations"] - 1) 
+        }
+
+    return {"status": NodeStatus.HUMAN_ABORT}
 
 def deploy_node(state: AgentState):
     logger.info("Deploying to production...")
