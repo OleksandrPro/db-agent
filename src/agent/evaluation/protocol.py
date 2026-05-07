@@ -1,4 +1,4 @@
-from typing import Protocol
+from typing import Protocol, Optional
 from enum import Enum
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,10 @@ class CriticReview(BaseModel):
     )
     feedback: str = Field(
         description="Detailed, actionable feedback. If REJECTED_INTENT, explain what is missing from the user's prompt. If REJECTED_SAFETY, explain how to fix the SQL to make it safe."
+    )
+    summary: Optional[str] = Field(
+        default=None,
+        description="If APPROVED, provide a clear, non-technical explanation of the changes made, including any defaults or constraints added for safety."
     )
 
 class SQLReviewer(Protocol):

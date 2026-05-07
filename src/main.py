@@ -30,6 +30,7 @@ if __name__ == "__main__":
         logger.warning("=" * 50)
         logger.warning("ATTENTION: HUMAN REVIEW REQUIRED")
         logger.warning("=" * 50)
+        logger.info(f"Changes summary:\n{interrupt_payload.get('migration_summary')}\n")
         logger.info(f"SQL for deployment:\n{interrupt_payload.get('sql')}\n")
         logger.info(f"Critic Feedback: {interrupt_payload.get('critic_logs')}")
         

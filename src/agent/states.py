@@ -19,4 +19,6 @@ class AgentState(BaseModel):
     status: NodeStatus | Literal["pending"] = "pending"
     logs: Annotated[List[str], add_logs] = Field(default_factory=list)
 
+    migration_summary: Optional[str] = None
+
     model_config = ConfigDict(use_enum_values=True)
