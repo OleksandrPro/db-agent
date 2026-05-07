@@ -44,10 +44,22 @@ class CriticUpdate(BaseModel):
         NodeStatus.CRITIC_REJECTED_SAFETY,
         NodeStatus.CRITIC_FAILED
     ]
+    migration_summary: Optional[str] = None
     error_log: Optional[str] = None
     logs: List[str]
 
     model_config = ConfigDict(use_enum_values=True)
+
+class HumanReviewPayload(BaseModel):
+    sql: str = Field(description="The generated SQL migration.")
+    original_schema: str = Field(description="The state of the database before migration.")
+    sandbox_schema: str = Field(description="The state of the database after migration.")
+    migration_summary: Optional[str] = Field(
+        default=None, 
+        description="Human-readable explanation of the changes (if approved) or the last critic feedback (in stalemate)."
+    )
+    iterations_spent: int = Field(description="Number of generation attempts used.")
+    is_stalemate: bool = Field(description="True if the agent ran out of attempts.")
 
 class HumanReviewUpdate(BaseModel):
     status: Literal[

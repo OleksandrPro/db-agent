@@ -21,7 +21,8 @@ from agent.responses import (
     CriticUpdate,
     HumanReviewUpdate,
     DeployUpdate,
-    HumanInterruptResponse
+    HumanInterruptResponse,
+    HumanReviewPayload
 )
 from utils.logging import setup_logger
 
@@ -168,11 +169,13 @@ def critic_node(state: AgentState, critic: SQLReviewer):
     )
     
     if review_result.status == ReviewStatus.APPROVED:
-        msg = "Critic approved the migration. It is safe and accurate."
+        summary_text = review_result.summary or review_result.feedback
+        msg = f"Critic approved. Summary: {summary_text}"
         logger.info(msg)
 
         update = CriticUpdate(
             status=NodeStatus.CRITIC_APPROVED,
+            migration_summary=summary_text,
             error_log=None,
             logs=[msg]
         )
@@ -216,14 +219,16 @@ def critic_node(state: AgentState, critic: SQLReviewer):
         return update
 
 def human_review_node(state: AgentState):
-    review_data = {
-        "sql": state.generated_sql,
-        "iterations_spent": state.iterations,
-        "critic_logs": state.logs[-1] if state.logs else "No logs",
-        "is_stalemate": state.iterations >= settings.max_iterations
-    }
+    payload = HumanReviewPayload(
+        sql=state.generated_sql or "",
+        original_schema=state.current_schema or "",
+        sandbox_schema=state.sandbox_schema or "",
+        migration_summary=state.migration_summary,
+        iterations_spent=state.iterations,
+        is_stalemate=state.iterations >= settings.max_iterations
+    )
 
-    raw_answer = interrupt(review_data)
+    raw_answer = interrupt(payload.model_dump())
 
     answer = HumanInterruptResponse(**raw_answer)
 
@@ -236,7 +241,7 @@ def human_review_node(state: AgentState):
         return update
     
     if answer.action == "reject":
-        feedback_msg = f"HUMAN REVIEW FAILED: {answer.get('feedback')}"
+        feedback_msg = f"HUMAN REVIEW FAILED: {answer.feedback}"
         
         update = HumanReviewUpdate(
             status=NodeStatus.HUMAN_REJECTED_WITH_FEEDBACK,
