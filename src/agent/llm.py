@@ -5,6 +5,8 @@ from agent.sql_generation.protocol import SQLGenerator
 from agent.sql_generation.providers import MockSQLGenerator, GeminiSQLGenerator
 from agent.evaluation.protocol import SQLReviewer
 from agent.evaluation.providers import MockCritic, GeminiCritic
+from agent.orchestrator.protocol import OrchestratorLLM
+from agent.orchestrator.providers import MockOrchestratorLLM, get_gemini_orchestrator
 from utils.logging import setup_logger
 
 
@@ -46,7 +48,7 @@ def get_sql_generation_llm() -> SQLGenerator:
 def get_critic_llm() -> SQLReviewer:
     env = settings.environment
     
-    match env:
+    match settings.environment:
         case EnvironmentType.DEV:
             logger.info("Environment is DEV. Using MockCritic.")
             return MockCritic()
@@ -61,4 +63,24 @@ def get_critic_llm() -> SQLReviewer:
             return GeminiCritic(
                 model_name=settings.models.critic, 
                 api_key=settings.google_api_key
+            )
+
+def get_agent_llm() -> OrchestratorLLM:
+    env = settings.environment
+    
+    match env:
+        case EnvironmentType.DEV:
+            logger.info("Environment is DEV. Using MockOrchestratorLLM.")
+            return MockOrchestratorLLM()
+        case EnvironmentType.TEST:
+            logger.info("Environment is TEST. Using Gemini Orchestrator.")
+            return get_gemini_orchestrator(
+                model_name=settings.models.agent, 
+                api_key=settings.google_api_key.get_secret_value()
+            )
+        case EnvironmentType.PROD:
+            logger.info("Environment is PROD. Using Gemini Orchestrator.")
+            return get_gemini_orchestrator(
+                model_name=settings.models.agent, 
+                api_key=settings.google_api_key.get_secret_value()
             )

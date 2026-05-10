@@ -1,224 +1,115 @@
-from sqlalchemy.exc import SQLAlchemyError
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.types import interrupt
 from config import settings
 from agent.states import AgentState
-from agent.status import NodeStatus
-from utils.db import (
-    get_engine,
-    fetch_schema_metadata,
-    metadata_to_ddl,
-    clone_schema,
-    apply_sql_query
-)
-from agent.classifier.protocol import PromptClassifier, ClassificationStatus
-from agent.sql_generation.protocol import SQLGenerator
-from agent.evaluation.protocol import SQLReviewer, ReviewStatus
+from agent.status import NodeStatus, ToolOutcome
+from agent.orchestrator.protocol import OrchestratorLLM
+from agent.classifier.protocol import PromptClassifier
 from agent.responses import (
     ClassificationUpdate,
-    IntrospectionUpdate,
-    SQLGenerationUpdate,
-    TestSQLUpdate,
-    CriticUpdate,
+    AgentUpdate,
+    ExecuteToolsUpdate,
     HumanReviewUpdate,
-    DeployUpdate,
     HumanInterruptResponse,
-    HumanReviewPayload
+    HumanReviewPayload,
+    ToolResult
 )
+from agent.tools import ToolName
 from utils.logging import setup_logger
-
 
 logger = setup_logger(__name__)
 
 def classify_node(state: AgentState, classifier: PromptClassifier):
     logger.info("Classifying user request...")
-    user_input = state.user_input
+    result = classifier.classify(state.user_input)
     
-    result = classifier.classify(user_input)
-    
-    if result.status == ClassificationStatus.PROCEED:
-        new_status = NodeStatus.CLASSIFIER_PROCEED
-    else:
-        new_status = NodeStatus.CLASSIFIER_OFF_TOPIC
+    new_status = NodeStatus.CLASSIFIER_PROCEED if result.status == "proceed" else NodeStatus.CLASSIFIER_OFF_TOPIC
+    messages = [HumanMessage(content=state.user_input)] if new_status == NodeStatus.CLASSIFIER_PROCEED else []
 
     update = ClassificationUpdate(
         status=new_status,
         classification_reasoning=result.reasoning,
-        classification_message=result.message
+        classification_message=result.message,
+        messages=messages
     )
 
-    return update
+    return update.model_dump(exclude_none=True)
 
-def introspect_db_node(state: AgentState):
-    logger.info("Starting introspection...")
+def agent_node(state: AgentState, llm: OrchestratorLLM, tools: list):
+    logger.info("Agent is thinking...")
     
-    engine = get_engine(settings.db_prod.url)
+    system_prompt = """
+You are an autonomous Senior DBA Agent. Your goal is to write, test, and validate safe PostgreSQL migrations.
 
-    try:
-        metadata = fetch_schema_metadata(engine)
-        full_schema = metadata_to_ddl(engine, metadata)
+CRITICAL RULE FOR REASONING:
+Before you call ANY tool, or before you give a final answer, you MUST write down your thought process. 
+Explain WHAT you are doing and WHY. But not it in details, just general explanation.
+
+STRICT WORKFLOW TO FOLLOW:
+1. Call `get_database_schema` to understand the tables.
+2. Call `generate_sql_migration` to write the SQL.
+3. Call `test_sql_in_sandbox` to test it safely.
+4. If sandbox fails, call `generate_sql_migration` again passing the error_log.
+5. If sandbox succeeds, call `ask_senior_dba_critic`.
+6. If Critic rejects it, call `generate_sql_migration` again using the Critic's feedback.
+7. If Critic APPROVES, you are DONE. Do not call any more tools. Wait for human approval.
+8. If you receive a message saying "HUMAN APPROVED", you MUST call `execute_production_deployment`.
+    """
+    
+    agent_model = llm.bind_tools(tools)
+    messages = [SystemMessage(content=system_prompt)] + state.messages
+    response = agent_model.invoke(messages)
+
+    update = AgentUpdate(messages=[response])
+
+    return update.model_dump(exclude_none=True)
+
+def execute_tools_node(state: AgentState, tools_map: dict) -> dict:
+    logger.info("Executing tools requested by Agent...")
+    last_msg = state.messages[-1]
+    
+    update = ExecuteToolsUpdate(messages=[])
+    
+    for tool_call in last_msg.tool_calls:
+        tool_name_enum = ToolName(tool_call["name"])
+        tool_func = tools_map[tool_name_enum]
         
-        msg = f"Reflected {len(metadata.tables)} tables."
-        logger.info(msg)
-        update = IntrospectionUpdate(
-            status=NodeStatus.SUCCESSFUL_EXTRACTION,
-            current_schema=full_schema,
-            error_log=None,
-            logs=[msg]
-        )
-        return update
-            
-    except Exception as e:
-        logger.error(f"Introspection failed: {e}")
-
-        update = IntrospectionUpdate(
-            status=NodeStatus.FAILED_EXTRACTION,
-            error_log=str(e),
-            logs=[f"Error: {e}"]
-        )
-
-        return update
-    finally:
-        engine.dispose()
-
-def generate_sql_node(state: AgentState, generator: SQLGenerator):
-    current_iteration = state.iterations + 1
-
-    logger.info(f"Generating SQL for: {state.user_input}")
-
-    iterations = state.iterations
-    error_log = state.error_log
-
-    retry_msg = f" (Retry {iterations})" if iterations > 0 else ""
-
-    generated_sql = generator.generate(
-        current_schema=state.current_schema,
-        user_input=state.user_input,
-        error_log=error_log
-    )
-    
-    update = SQLGenerationUpdate(
-        generated_sql=generated_sql,
-        iterations=current_iteration,
-        logs=[f"SQL Generated{retry_msg}."]
-    )
-
-    return update
-
-def test_sql_node(state: AgentState):
-    logger.info("Testing SQL in sandbox...")
-    
-    prod_engine = get_engine(settings.db_prod.url)
-    test_engine = get_engine(settings.db_test.url)
-    
-    try:
-        clone_schema(prod_engine, test_engine)
+        logger.info(f"-> Running Tool: {tool_name_enum.value}")
+        result: ToolResult = tool_func.invoke(tool_call["args"])
         
-        generated_sql = state.generated_sql
-        apply_sql_query(test_engine, generated_sql)
-
-        sandbox_metadata = fetch_schema_metadata(test_engine)
-        sandbox_schema = metadata_to_ddl(test_engine, sandbox_metadata)
+        update.messages.append(ToolMessage(content=result.llm_message, tool_call_id=tool_call["id"]))
         
-        msg = "Sandbox test passed."
-        logger.info(msg)
+        match tool_name_enum:
+            case ToolName.GENERATE_SQL:
+                if result.outcome == ToolOutcome.SUCCESS:
+                    update.generated_sql = result.data
+                    update.iterations = state.iterations + 1
+                    
+            case ToolName.GET_SCHEMA:
+                if result.outcome == ToolOutcome.SUCCESS:
+                    update.current_schema = result.data
+                    
+            case ToolName.TEST_SQL:
+                if result.outcome == ToolOutcome.SUCCESS:
+                    update.sandbox_schema = result.data
+                    
+            case ToolName.ASK_CRITIC:
+                if result.outcome == ToolOutcome.SUCCESS:
+                    update.status = NodeStatus.CRITIC_APPROVED
+                    update.migration_summary = result.data
+                    
+            case ToolName.DEPLOY:
+                if result.outcome == ToolOutcome.SUCCESS:
+                    update.status = NodeStatus.DEPLOY_SUCCESS
+                elif result.outcome == ToolOutcome.DATA_CONFLICT:
+                    update.status = NodeStatus.DEPLOY_FAILED_DATA_CONFLICT
+                else:
+                    update.status = NodeStatus.DEPLOY_FAILED_FATAL
 
-        update = TestSQLUpdate(
-            status=NodeStatus.TEST_SUCCESS,
-            sandbox_schema=sandbox_schema,
-            error_log=None,
-            logs=[msg]
-        )
-
-        return update
-    
-    except SQLAlchemyError as e:
-        err_msg = str(e)
-        logger.warning(f"SQL Test failed: {err_msg}")
-
-        update = TestSQLUpdate(
-            status=NodeStatus.TEST_FAILED_SQL,
-            error_log=err_msg,
-            logs=[f"Test failed: {err_msg}"]
-        )
-
-        return update
-    
-    except Exception as e:
-        err_msg = f"System error during sandbox setup: {e}"
-        logger.error(err_msg)
-        update = TestSQLUpdate(
-            status=NodeStatus.FATAL_SYSTEM_ERROR,
-            error_log=err_msg,
-            logs=[err_msg]
-        )
-
-        return update
-
-    finally:
-        prod_engine.dispose()
-        test_engine.dispose()
-
-def critic_node(state: AgentState, critic: SQLReviewer):
-    logger.info("Critic is reviewing the migration...")
-    
-    review_result = critic.review(
-        user_prompt=state.user_input,
-        original_schema=state.current_schema,
-        sandbox_schema=state.sandbox_schema,
-        generated_sql=state.generated_sql
-    )
-    
-    if review_result.status == ReviewStatus.APPROVED:
-        summary_text = review_result.summary or review_result.feedback
-        msg = f"Critic approved. Summary: {summary_text}"
-        logger.info(msg)
-
-        update = CriticUpdate(
-            status=NodeStatus.CRITIC_APPROVED,
-            migration_summary=summary_text,
-            error_log=None,
-            logs=[msg]
-        )
-
-        return update
-        
-    elif review_result.status == ReviewStatus.REJECTED_INTENT:
-        err_msg = f"CRITIC REJECTED (Intent mismatch): {review_result.feedback}"
-        logger.warning(err_msg)
-
-        update = CriticUpdate(
-            status=NodeStatus.CRITIC_REJECTED_INTENT,
-            error_log=err_msg,
-            logs=[err_msg]
-        )
-
-        return update
-        
-    elif review_result.status == ReviewStatus.REJECTED_SAFETY:
-        err_msg = f"CRITIC REJECTED (Safety hazard): {review_result.feedback}"
-        logger.warning(err_msg)
-
-        update = CriticUpdate(
-            status=NodeStatus.CRITIC_REJECTED_SAFETY,
-            error_log=err_msg,
-            logs=[err_msg]
-        )
-
-        return update
-    
-    else:
-        err_msg = f"Critic failed to provide a valid review: {review_result.feedback}"
-        logger.error(err_msg)
-
-        update = CriticUpdate(
-            status=NodeStatus.CRITIC_FAILED,
-            error_log=err_msg,
-            logs=[err_msg]
-        )
-
-        return update
+    return update.model_dump(exclude_none=True)
 
 def human_review_node(state: AgentState):
+    logger.info("Preparing payload for Human Review...")
     payload = HumanReviewPayload(
         sql=state.generated_sql or "",
         original_schema=state.current_schema or "",
@@ -229,76 +120,23 @@ def human_review_node(state: AgentState):
     )
 
     raw_answer = interrupt(payload.model_dump())
-
     answer = HumanInterruptResponse(**raw_answer)
-
+    
     if answer.action == "approve":
+        msg = HumanMessage(content="HUMAN APPROVED. You must now use the execute_production_deployment tool.")
         update = HumanReviewUpdate(
-            status=NodeStatus.HUMAN_APPROVED,
-            human_feedback=None
+            status=NodeStatus.HUMAN_APPROVED, 
+            messages=[msg]
         )
-
-        return update
-    
-    if answer.action == "reject":
+    elif answer.action == "reject":
         feedback_msg = f"HUMAN REVIEW FAILED: {answer.feedback}"
-        
         update = HumanReviewUpdate(
-            status=NodeStatus.HUMAN_REJECTED_WITH_FEEDBACK,
-            human_feedback=answer.feedback,
-            error_log=feedback_msg,
-            logs=[feedback_msg],
-            iterations=max(0, state.iterations - 1) 
+            status=NodeStatus.HUMAN_REJECTED_WITH_FEEDBACK, 
+            messages=[HumanMessage(content=feedback_msg)], 
+            error_log=feedback_msg, 
+            iterations=max(0, state.iterations - 1)
         )
+    else:
+        update = HumanReviewUpdate(status=NodeStatus.HUMAN_ABORT)
 
-        return update
-
-    return HumanReviewUpdate(status=NodeStatus.HUMAN_ABORT)
-
-def deploy_node(state: AgentState):
-    logger.info("Deploying to production...")
-    
-    prod_engine = get_engine(settings.db_prod.url)
-    try:
-        apply_sql_query(prod_engine, state.generated_sql)
-        logger.info("Deployment simulated successfully.")
-
-        update = DeployUpdate(
-            status=NodeStatus.DEPLOY_SUCCESS,
-            logs=["Deployed to production."]
-        )
-
-        return update
-    
-    except SQLAlchemyError as e:
-        # Error while applying sql-query to the prod db
-        err_msg = str(e)
-        logger.error(f"CRITICAL SQL DATA ERROR during deployment: {err_msg}")
-
-        extended_error_log = (
-            f"SYNTAX OK, BUT DATA CONFLICT: Your query successfully passed the Sandbox test "
-            f"(the syntax and schema are correct), but FAILED during Production deployment "
-            f"due to existing data. Production Error: {err_msg}. "
-            f"Please adjust the query to handle existing rows safely."
-        )
-
-        update = DeployUpdate(
-            status=NodeStatus.DEPLOY_FAILED_DATA_CONFLICT, 
-            error_log=extended_error_log,
-            logs=[f"Prod Data Error: {err_msg}"]
-        )
-
-        return update
-
-    except Exception as e:
-        logger.error(f"CRITICAL ERROR during deployment: {e}")
-
-        update = DeployUpdate(
-            status=NodeStatus.DEPLOY_FAILED_FATAL,
-            error_log=str(e)
-        )
-
-        return update
-    
-    finally:
-        prod_engine.dispose()
+    return update.model_dump(exclude_none=True)

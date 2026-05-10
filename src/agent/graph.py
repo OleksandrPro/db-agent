@@ -5,197 +5,118 @@ from agent.states import AgentState
 from agent.status import NodeStatus, GraphNode
 from agent.nodes import (
     classify_node,
-    introspect_db_node,
-    generate_sql_node,
-    test_sql_node,
-    critic_node,
+    agent_node,
+    execute_tools_node,
     human_review_node,
-    deploy_node
 )
 from agent.llm import (
-    get_classifier_llm,
-    get_sql_generation_llm,
+    get_classifier_llm, 
+    get_agent_llm, 
+    get_sql_generation_llm, 
     get_critic_llm
+)
+from agent.tools import (
+    ToolName,
+    get_database_schema,
+    make_sql_generation_tool,
+    test_sql_in_sandbox,
+    make_critic_tool,
+    execute_production_deployment
 )
 from config import settings
 from utils.logging import setup_logger
 
-
 logger = setup_logger(__name__)
 
 classifier_impl = get_classifier_llm()
-bound_classify_node = partial(classify_node, classifier=classifier_impl)
+orchestrator_impl = get_agent_llm()
 generator_impl = get_sql_generation_llm()
-bound_generate_node = partial(generate_sql_node, generator=generator_impl)
 critic_impl = get_critic_llm()
-bound_critic_node = partial(critic_node, critic=critic_impl)
 
+generate_sql_tool = make_sql_generation_tool(generator_impl)
+critic_tool = make_critic_tool(critic_impl)
+
+tools_list = [
+    get_database_schema, 
+    generate_sql_tool, 
+    test_sql_in_sandbox, 
+    critic_tool, 
+    execute_production_deployment
+]
+
+tools_map = {
+    ToolName.GET_SCHEMA: get_database_schema,
+    ToolName.GENERATE_SQL: generate_sql_tool,
+    ToolName.TEST_SQL: test_sql_in_sandbox,
+    ToolName.ASK_CRITIC: critic_tool,
+    ToolName.DEPLOY: execute_production_deployment
+}
+
+bound_classify_node = partial(classify_node, classifier=classifier_impl)
+bound_agent_node = partial(agent_node, llm=orchestrator_impl, tools=tools_list)
+bound_execute_tools_node = partial(execute_tools_node, tools_map=tools_map)
 
 workflow = StateGraph(AgentState)
 
 workflow.add_node(GraphNode.CLASSIFY, bound_classify_node)
-workflow.add_node(GraphNode.INTROSPECT, introspect_db_node)
-workflow.add_node(GraphNode.GENERATE, bound_generate_node)
-workflow.add_node(GraphNode.TEST, test_sql_node)
-workflow.add_node(GraphNode.CRITIC, bound_critic_node)
+workflow.add_node(GraphNode.AGENT, bound_agent_node)
+workflow.add_node(GraphNode.TOOLS, bound_execute_tools_node)
 workflow.add_node(GraphNode.HUMAN_REVIEW, human_review_node)
-workflow.add_node(GraphNode.DEPLOY, deploy_node)
 
 workflow.add_edge(START, GraphNode.CLASSIFY)
 
 def route_after_classification(state: AgentState):
-    status = state.status
-    
-    if status == NodeStatus.CLASSIFIER_PROCEED:
-        return GraphNode.INTROSPECT
-    
-    if status == NodeStatus.CLASSIFIER_OFF_TOPIC:
-        logger.info(f"Off-topic request detected. Reason: {state.get('classification_reasoning')}")
-        if msg := state.get("classification_message"):
-            print(f"\n[Agent]: {msg}")
-        return END
-
-    logger.error(f"Unexpected classification status: {status}")
-    return END
+    return GraphNode.AGENT if state.status == NodeStatus.CLASSIFIER_PROCEED else END
 
 workflow.add_conditional_edges(
     GraphNode.CLASSIFY,
     route_after_classification,
     {
-        GraphNode.INTROSPECT: GraphNode.INTROSPECT,
+        GraphNode.AGENT: GraphNode.AGENT,
         END: END
     }
 )
 
-workflow.add_edge(GraphNode.INTROSPECT, GraphNode.GENERATE)
-workflow.add_edge(GraphNode.GENERATE, GraphNode.TEST)
-
-def route_after_test(state: AgentState):
-    status = state.status
-    iterations = state.iterations
+def route_after_agent(state: AgentState):
+    last_message = state.messages[-1]
     
-    match status:
-        case NodeStatus.TEST_SUCCESS:
-            return GraphNode.CRITIC
-            
-        case NodeStatus.TEST_FAILED_SQL if iterations < settings.max_iterations:
-            logger.info(f"Routing back to generation (Attempt {iterations}/{settings.max_iterations})...")
-            return GraphNode.GENERATE
-            
-        case NodeStatus.TEST_FAILED_SQL:
-            logger.error("Max iterations reached on syntax errors. Stopping.")
-            return END
-        
-        case NodeStatus.FATAL_SYSTEM_ERROR:
-            logger.error("FATAL SYSTEM ERROR during sandbox setup or execution. Halting workflow.")
-            return END
-            
-        case _:
-            logger.critical(f"UNHANDLED STATUS in route_after_test: '{status}'. This is a bug. Stopping.")
-            return END
-
-# (Self-Healing Loop)
-workflow.add_conditional_edges(
-    GraphNode.TEST,
-    route_after_test,
-    {
-        GraphNode.CRITIC: GraphNode.CRITIC,
-        GraphNode.GENERATE: GraphNode.GENERATE,
-        END: END
-    }
-)
-
-def route_after_critic(state: AgentState):
-    status = state.status
-    iterations = state.iterations
+    if hasattr(last_message, "tool_calls") and len(last_message.tool_calls) > 0:
+        return GraphNode.TOOLS
     
-    match status:
-        case NodeStatus.CRITIC_APPROVED:
-            return GraphNode.HUMAN_REVIEW
-            
-        case _ if iterations >= settings.max_iterations:
-            logger.warning("Max iterations reached. Routing to Human Review for stalemate resolution.")
-            return GraphNode.HUMAN_REVIEW
-            
-        case NodeStatus.CRITIC_REJECTED_INTENT | NodeStatus.CRITIC_REJECTED_SAFETY:
-            logger.info(f"Routing back to generation (Attempt {iterations}/{settings.max_iterations})...")
-            return GraphNode.GENERATE
+    if state.status in [NodeStatus.DEPLOY_SUCCESS, NodeStatus.DEPLOY_FAILED_FATAL]:
+        return END
         
-        case NodeStatus.CRITIC_FAILED:
-            logger.error("Critic system failure.")
-            return END
-            
-        case _:
-            logger.critical(f"UNHANDLED STATUS in route_after_critic: '{status}'. This is a bug. Stopping.")
-            return END
+    if state.status == NodeStatus.CRITIC_APPROVED:
+        return GraphNode.HUMAN_REVIEW
+        
+    if state.iterations >= settings.max_iterations:
+        logger.warning("Max iterations reached. Forcing Human Review.")
+        return GraphNode.HUMAN_REVIEW
+
+    logger.info("Agent stopped autonomously without reaching a designated goal.")
+    return END
 
 workflow.add_conditional_edges(
-    GraphNode.CRITIC,
-    route_after_critic,
-    {
+    GraphNode.AGENT,
+    route_after_agent, {
+        GraphNode.TOOLS: GraphNode.TOOLS,
         GraphNode.HUMAN_REVIEW: GraphNode.HUMAN_REVIEW,
-        GraphNode.GENERATE: GraphNode.GENERATE,
+        GraphNode.AGENT: GraphNode.AGENT,
         END: END
     }
 )
+
+workflow.add_edge(GraphNode.TOOLS, GraphNode.AGENT)
 
 def route_after_human(state: AgentState):
-    status = state.status
-    
-    match status:
-        case NodeStatus.HUMAN_APPROVED:
-            return GraphNode.DEPLOY
-            
-        case NodeStatus.HUMAN_REJECTED_WITH_FEEDBACK:
-            logger.info("Human provided feedback. Returning to generation.")
-            return GraphNode.GENERATE
-            
-        case NodeStatus.HUMAN_ABORT:
-            logger.info("Migration aborted by human.")
-            return END
-            
-        case _:
-            return END
+    if state.status in [NodeStatus.HUMAN_APPROVED, NodeStatus.HUMAN_REJECTED_WITH_FEEDBACK]:
+        return GraphNode.AGENT
+    return END
 
 workflow.add_conditional_edges(
     GraphNode.HUMAN_REVIEW,
-    route_after_human,
-    {
-        GraphNode.DEPLOY: GraphNode.DEPLOY,
-        GraphNode.GENERATE: GraphNode.GENERATE,
-        END: END
-    }
-)
-
-def route_after_deploy(state: AgentState):
-    status = state.status
-    iterations = state.iterations
-    
-    match status:
-        case NodeStatus.DEPLOY_SUCCESS:
-            return END
-            
-        case NodeStatus.DEPLOY_FAILED_DATA_CONFLICT if iterations < settings.max_iterations:
-            logger.info(f"Prod data conflict! Routing back to generation (Attempt {iterations}/{settings.max_iterations})...")
-            return GraphNode.GENERATE
-            
-        case NodeStatus.DEPLOY_FAILED_DATA_CONFLICT:
-            logger.error("Max iterations reached on Prod errors. Stopping.")
-            return END
-        
-        case NodeStatus.DEPLOY_FAILED_FATAL:
-            logger.error("FATAL DEPLOYMENT ERROR: An unexpected system error occurred during production deployment. Halting workflow.")
-            return END
-            
-        case _:
-            logger.critical(f"UNHANDLED STATUS in route_after_deploy: '{status}'. This is a bug. Stopping.")
-            return END
-
-workflow.add_conditional_edges(
-    GraphNode.DEPLOY,
-    route_after_deploy,
-    {
-        GraphNode.GENERATE: GraphNode.GENERATE,
+    route_after_human, {
+        GraphNode.AGENT: GraphNode.AGENT,
         END: END
     }
 )

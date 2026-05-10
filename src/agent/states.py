@@ -1,12 +1,15 @@
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Annotated, List, Literal
 from agent.status import NodeStatus
+from langgraph.graph.message import AnyMessage, add_messages
 
 def add_logs(left: List[str], right: List[str]) -> List[str]:
     return (left or []) + (right or [])
 
 class AgentState(BaseModel):
     user_input: str
+
+    messages: Annotated[List[AnyMessage], add_messages] = Field(default_factory=list)
 
     classification_reasoning: Optional[str] = None
     classification_message: Optional[str] = None

@@ -21,6 +21,7 @@ class DatabaseSettings(BaseModel):
         return f"postgresql://{self.user}:{self.password.get_secret_value()}@{self.host}:{self.port}/{self.name}"
 
 class LLMSettings(BaseModel):
+    agent: str = DEFAULT_GEMINI_MODEL
     generator: str = DEFAULT_GEMINI_MODEL
     critic: str = DEFAULT_GEMINI_MODEL
     classifier: str = DEFAULT_GEMINI_MODEL

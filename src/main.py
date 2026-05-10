@@ -1,58 +1,94 @@
 import uuid
+import asyncio
 from langgraph.types import Command
 from agent.graph import app
+from agent.responses import HumanInterruptResponse, HumanReviewPayload
+from agent.status import GraphNode
 from utils.logging import setup_logger
-
+from utils.events import AgentEventWriter, LoggerEventWriter
 
 logger = setup_logger(__name__)
 
-if __name__ == "__main__":
-    logger.info("=== DB-Agent MVP (Console HITL Workflow) ===")
+async def process_graph_events(graph_app, inputs, config, writer: AgentEventWriter):
+    async for event in graph_app.astream_events(inputs, config=config, version="v2"):
+        kind = event["event"]
+        
+        if kind == "on_chat_model_end":
+            ai_message = event["data"]["output"]
+            if hasattr(ai_message, "content") and ai_message.content:
+                thought = ai_message.content.strip()
+                if thought:
+                    writer.on_thought(thought)
+                    
+        elif kind == "on_tool_start":
+            tool_name = event["name"]
+            writer.on_tool_start(tool_name)
+
+async def main():
+    logger.info("=== DB-Agent MVP 4.0 (Autonomous Agent Workflow) ===")
     user_prompt = input("What DB change do you need? ")
     
     logger.info(f"User prompt: {user_prompt}")
 
     inputs = {
-        "user_input": user_prompt,
-        "iterations": 0,
-        "status": "pending"
+        "user_input": user_prompt
     }
     
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
+
+    logger_writer = LoggerEventWriter(logger=logger)
     
     logger.info("Starting graph execution...")
-    result = app.invoke(inputs, config=config)
+
+    await process_graph_events(app, inputs, config, writer=logger_writer)
     
-    while "__interrupt__" in result:
-        interrupt_payload = result["__interrupt__"][0].value
-        
-        logger.warning("=" * 50)
-        logger.warning("ATTENTION: HUMAN REVIEW REQUIRED")
-        logger.warning("=" * 50)
-        logger.info(f"Changes summary:\n{interrupt_payload.get('migration_summary')}\n")
-        logger.info(f"SQL for deployment:\n{interrupt_payload.get('sql')}\n")
-        logger.info(f"Critic Feedback: {interrupt_payload.get('critic_logs')}")
-        
-        if interrupt_payload.get('is_stalemate'):
-            logger.warning("Agent has reached a stalemate (max iterations reached).")
-        logger.warning("=" * 50)
-        
-        choice = input("\nApprove deployment? (y - yes, n - revise, q - abort): ").strip().lower()
-        
-        choice = choice.lower()
+    snapshot = app.get_state(config)
+    
+    while snapshot.next:
+        if GraphNode.HUMAN_REVIEW in snapshot.next:
+            tasks = snapshot.tasks
+            if not tasks or not tasks[0].interrupts:
+                break
+                
+            interrupt_data = tasks[0].interrupts[0].value
+            payload = HumanReviewPayload(**interrupt_data)
+            
+            logger.warning("=" * 50)
+            logger.warning("ATTENTION: HUMAN REVIEW REQUIRED")
+            logger.warning("=" * 50)
 
-        if choice == 'y':
-            user_decision = {"action": "approve"}
-            logger.info("Deployment approved. Proceeding...")
-        elif choice == 'q':
-            user_decision = {"action": "abort"}
-            logger.info("Aborting deployment...")
+            print(f"\n[Changes summary]:\n{payload.migration_summary}\n")
+            print(f"[SQL for deployment]:\n{payload.sql}\n")
+            
+            if payload.is_stalemate:
+                logger.warning("AGENT STALEMATE: Max iterations reached. Agent is stuck.")
+            logger.warning("=" * 50)
+            
+            choice = input("\nApprove deployment? (y - approve, n - revise, q - abort): ").strip().lower()
+            
+            if choice == 'y':
+                action = "approve"
+                feedback = None
+                logger.info("Deployment approved. Giving agent the green light...")
+            elif choice == 'q':
+                action = "abort"
+                feedback = None
+                logger.info("Aborting deployment...")
+            else:
+                action = "reject"
+                feedback = input("What should the agent fix? ")
+                logger.info("Returning to the agent for revision...")
+
+            user_decision = HumanInterruptResponse(action=action, feedback=feedback)
+            
+            resume_command = Command(resume=user_decision.model_dump())
+            await process_graph_events(app, resume_command, config, writer=logger_writer)
         else:
-            feedback = input("What should the agent fix? ")
-            user_decision = {"action": "reject", "feedback": feedback}
-            logger.info("Returning to the agent for revision...")
+            break
+            
+    final_state = app.get_state(config).values
+    logger.info(f"Graph execution finished. Final status: {final_state.get('status')}")
 
-        result = app.invoke(Command(resume=user_decision), config=config)
-        
-    logger.info(f"Graph execution finished. Final status: {result.get('status')}")
+if __name__ == "__main__":
+    asyncio.run(main())
