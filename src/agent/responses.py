@@ -4,20 +4,23 @@ from typing import Optional, List, Literal, Any
 from agent.status import NodeStatus, ToolOutcome
 
 
-class ClassificationUpdate(BaseModel):
+class GraphStateUpdate(BaseModel):
+    model_config = ConfigDict(
+        use_enum_values=True, 
+        validate_assignment=True, 
+        arbitrary_types_allowed=True
+    )
+
+class ClassificationUpdate(GraphStateUpdate):
     messages: List[Any] = Field(default_factory=list)
     status: Literal[NodeStatus.CLASSIFIER_PROCEED, NodeStatus.CLASSIFIER_OFF_TOPIC]
     classification_reasoning: str
     classification_message: Optional[str] = None
 
-    model_config = ConfigDict(use_enum_values=True)
-
-class AgentUpdate(BaseModel):
+class AgentUpdate(GraphStateUpdate):
     messages: List[Any]
-    
-    model_config = ConfigDict(use_enum_values=True)
 
-class ExecuteToolsUpdate(BaseModel):
+class ExecuteToolsUpdate(GraphStateUpdate):
     messages: List[Any]
     generated_sql: Optional[str] = None
     iterations: Optional[int] = None
@@ -26,20 +29,7 @@ class ExecuteToolsUpdate(BaseModel):
     status: Optional[str] = None
     migration_summary: Optional[str] = None
 
-    model_config = ConfigDict(use_enum_values=True)
-
-class HumanReviewPayload(BaseModel):
-    sql: str = Field(description="The generated SQL migration.")
-    original_schema: str = Field(description="The state of the database before migration.")
-    sandbox_schema: str = Field(description="The state of the database after migration.")
-    migration_summary: Optional[str] = Field(
-        default=None, 
-        description="Human-readable explanation of the changes (if approved) or the last critic feedback (in stalemate)."
-    )
-    iterations_spent: int = Field(description="Number of generation attempts used.")
-    is_stalemate: bool = Field(description="True if the agent ran out of attempts.")
-
-class HumanReviewUpdate(BaseModel):
+class HumanReviewUpdate(GraphStateUpdate):
     messages: List[Any] = Field(default_factory=list)
     status: Literal[
         NodeStatus.HUMAN_APPROVED,
@@ -51,7 +41,16 @@ class HumanReviewUpdate(BaseModel):
     logs: Optional[List[str]] = None
     iterations: Optional[int] = None
 
-    model_config = ConfigDict(use_enum_values=True)
+class HumanReviewPayload(BaseModel):
+    sql: str = Field(description="The generated SQL migration.")
+    original_schema: str = Field(description="The state of the database before migration.")
+    sandbox_schema: str = Field(description="The state of the database after migration.")
+    migration_summary: Optional[str] = Field(
+        default=None, 
+        description="Human-readable explanation of the changes (if approved) or the last critic feedback (in stalemate)."
+    )
+    iterations_spent: int = Field(description="Number of generation attempts used.")
+    is_stalemate: bool = Field(description="True if the agent ran out of attempts.")
 
 class HumanInterruptResponse(BaseModel):
     action: Literal["approve", "reject", "abort"] = Field(
