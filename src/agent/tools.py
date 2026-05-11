@@ -10,16 +10,16 @@ from config import settings
 
 
 @tool
-def get_database_schema() -> ToolResult:
+def get_production_schema() -> ToolResult:
     """
     Use this tool FIRST to retrieve the current DDL schema of the production PostgreSQL database.
     
     WHEN TO USE:
-    Always call this tool at the very beginning of the process before attempting to generate any SQL.
+    Always call this tool at the very beginning of the process.
     You must know the exact table structures, column names, and constraints to fulfill the user's request.
     
     Returns:
-        A text string containing the complete SQL DDL representation of the current database schema.
+        A text string containing the complete SQL DDL representation of the current production database.
     """
     engine = get_engine(settings.db_prod.url)
     try:
@@ -58,39 +58,76 @@ def make_sql_generation_tool(generator: SQLGenerator):
     return generate_sql_migration
 
 @tool
-def test_sql_in_sandbox(sql_query: str) -> ToolResult:
+def reset_and_prepare_sandbox() -> ToolResult:
     """
-    Use this tool to safely execute and validate your generated SQL migration query in an isolated sandbox environment.
+    Use this tool to wipe the sandbox database clean and synchronize it with the current production schema.
     
     WHEN TO USE:
-    Call this tool IMMEDIATELY after generating an SQL query. NEVER skip this step. 
-    Do not ask the Critic for review until this tool returns a SUCCESS message.
+    You MUST call this tool BEFORE you attempt to execute any generated SQL in the sandbox.
+    If your SQL fails and you generate a new one, you MUST call this tool again to reset the environment.
     
-    Args:
-        sql_query: The raw SQL string you want to test.
-        
     Returns:
-        If successful, returns a string starting with 'SUCCESS' followed by the new database schema.
-        If it fails, returns a string starting with 'ERROR' followed by detailed PostgreSQL error logs. 
-        If you receive an ERROR, you MUST use generate_sql_migration again and pass this error log.
+        A success message indicating the sandbox is ready for testing.
     """
     prod_engine = get_engine(settings.db_prod.url)
     test_engine = get_engine(settings.db_test.url)
     try:
         clone_schema(prod_engine, test_engine)
-        apply_sql_query(test_engine, sql_query)
-        metadata = fetch_schema_metadata(test_engine)
-        schema = metadata_to_ddl(test_engine, metadata)
+        msg = "SUCCESS: Sandbox database has been wiped and synchronized with production. Ready for testing."
+        return ToolResult(outcome=ToolOutcome.SUCCESS, llm_message=msg)
+    except SQLAlchemyError as e:
+        return ToolResult(outcome=ToolOutcome.ERROR, llm_message=f"FATAL ERROR cloning schema: {str(e)}")
+    finally:
+        prod_engine.dispose()
+        test_engine.dispose()
+
+@tool
+def execute_sandbox_sql(sql_query: str) -> ToolResult:
+    """
+    Use this tool to execute your generated SQL query in the isolated sandbox environment.
+    
+    WHEN TO USE:
+    Call this ONLY AFTER you have successfully called `reset_and_prepare_sandbox`.
+    
+    Args:
+        sql_query: The raw SQL string you want to test.
         
+    Returns:
+        If successful, returns a 'SUCCESS' message.
+        If it fails, returns an 'ERROR' with PostgreSQL logs. You MUST generate new SQL and reset the sandbox if this happens.
+    """
+    test_engine = get_engine(settings.db_test.url)
+    try:
+        apply_sql_query(test_engine, sql_query)
         return ToolResult(
             outcome=ToolOutcome.SUCCESS, 
-            llm_message=f"SUCCESS. Resulting Schema:\n{schema}", 
-            data=schema
+            llm_message="SUCCESS: Query executed successfully in the sandbox."
         )
     except SQLAlchemyError as e:
         return ToolResult(outcome=ToolOutcome.ERROR, llm_message=f"ERROR: {str(e)}")
     finally:
-        prod_engine.dispose()
+        test_engine.dispose()
+
+@tool
+def get_sandbox_schema() -> ToolResult:
+    """
+    Use this tool to retrieve the updated DDL schema from the sandbox AFTER you have executed your SQL.
+    
+    WHEN TO USE:
+    Call this tool after `execute_sandbox_sql` returns SUCCESS. 
+    Use this to visually verify that your SQL made the correct structural changes before asking the Critic for a review.
+    
+    Returns:
+        A text string containing the DDL representation of the sandbox database.
+    """
+    test_engine = get_engine(settings.db_test.url)
+    try:
+        metadata = fetch_schema_metadata(test_engine)
+        schema = metadata_to_ddl(test_engine, metadata)
+        return ToolResult(outcome=ToolOutcome.SUCCESS, llm_message=schema, data=schema)
+    except Exception as e:
+        return ToolResult(outcome=ToolOutcome.ERROR, llm_message=f"Error extracting sandbox schema: {e}")
+    finally:
         test_engine.dispose()
 
 def make_critic_tool(critic: SQLReviewer):
@@ -156,8 +193,10 @@ def execute_production_deployment(sql_query: str) -> ToolResult:
         engine.dispose()
 
 class ToolName(str, Enum):
-    GET_SCHEMA = "get_database_schema"
+    GET_PROD_SCHEMA = "get_production_schema"
     GENERATE_SQL = "generate_sql_migration"
-    TEST_SQL = "test_sql_in_sandbox"
+    RESET_SANDBOX = "reset_and_prepare_sandbox"
+    EXEC_SANDBOX = "execute_sandbox_sql"
+    GET_SANDBOX_SCHEMA = "get_sandbox_schema"
     ASK_CRITIC = "ask_senior_dba_critic"
     DEPLOY = "execute_production_deployment"

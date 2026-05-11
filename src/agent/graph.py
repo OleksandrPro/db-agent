@@ -17,9 +17,11 @@ from agent.llm import (
 )
 from agent.tools import (
     ToolName,
-    get_database_schema,
+    get_production_schema,
     make_sql_generation_tool,
-    test_sql_in_sandbox,
+    reset_and_prepare_sandbox,
+    execute_sandbox_sql,
+    get_sandbox_schema,
     make_critic_tool,
     execute_production_deployment
 )
@@ -37,17 +39,21 @@ generate_sql_tool = make_sql_generation_tool(generator_impl)
 critic_tool = make_critic_tool(critic_impl)
 
 tools_list = [
-    get_database_schema, 
+    get_production_schema, 
     generate_sql_tool, 
-    test_sql_in_sandbox, 
-    critic_tool, 
+    reset_and_prepare_sandbox,
+    execute_sandbox_sql,
+    get_sandbox_schema, 
+    critic_tool,
     execute_production_deployment
 ]
 
 tools_map = {
-    ToolName.GET_SCHEMA: get_database_schema,
+    ToolName.GET_PROD_SCHEMA: get_production_schema,
     ToolName.GENERATE_SQL: generate_sql_tool,
-    ToolName.TEST_SQL: test_sql_in_sandbox,
+    ToolName.RESET_SANDBOX: reset_and_prepare_sandbox,
+    ToolName.EXEC_SANDBOX: execute_sandbox_sql,
+    ToolName.GET_SANDBOX_SCHEMA: get_sandbox_schema,
     ToolName.ASK_CRITIC: critic_tool,
     ToolName.DEPLOY: execute_production_deployment
 }
@@ -78,6 +84,10 @@ workflow.add_conditional_edges(
 )
 
 def route_after_agent(state: AgentState):
+    logger.debug("="*40)
+    logger.debug(f"[ROUTER DEBUG] Current state status is: '{state.status}' (type: {type(state.status)})")
+    logger.debug("="*40)
+
     last_message = state.messages[-1]
     
     if hasattr(last_message, "tool_calls") and len(last_message.tool_calls) > 0:

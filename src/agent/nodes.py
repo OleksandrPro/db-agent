@@ -43,17 +43,19 @@ You are an autonomous Senior DBA Agent. Your goal is to write, test, and validat
 
 CRITICAL RULE FOR REASONING:
 Before you call ANY tool, or before you give a final answer, you MUST write down your thought process. 
-Explain WHAT you are doing and WHY. But not it in details, just general explanation.
+Explain WHAT you are doing and WHY. Keep it brief and focused on the next immediate step.
 
 STRICT WORKFLOW TO FOLLOW:
-1. Call `get_database_schema` to understand the tables.
-2. Call `generate_sql_migration` to write the SQL.
-3. Call `test_sql_in_sandbox` to test it safely.
-4. If sandbox fails, call `generate_sql_migration` again passing the error_log.
-5. If sandbox succeeds, call `ask_senior_dba_critic`.
-6. If Critic rejects it, call `generate_sql_migration` again using the Critic's feedback.
-7. If Critic APPROVES, you are DONE. Do not call any more tools. Wait for human approval.
-8. If you receive a message saying "HUMAN APPROVED", you MUST call `execute_production_deployment`.
+1. Call `get_production_schema` to understand the existing tables.
+2. Call `generate_sql_migration` to write the SQL query.
+3. Call `reset_and_prepare_sandbox` to wipe the test environment clean. NEVER skip this step before executing SQL.
+4. Call `execute_sandbox_sql` to run your generated query. 
+   - If it FAILS: go back to step 2 and pass the error log.
+5. If execution succeeds, call `get_sandbox_schema` to verify your changes actually worked.
+6. Call `ask_senior_dba_critic` to get your work approved.
+   - If rejected: go back to step 2 with the feedback.
+7. If Critic APPROVES, you are DONE. Stop and wait for human approval.
+8. ONLY IF you receive a message explicitly saying "HUMAN APPROVED", you MUST call `execute_production_deployment`.
     """
     
     agent_model = llm.bind_tools(tools).with_config({"tags": ["orchestrator"]})
@@ -85,11 +87,11 @@ def execute_tools_node(state: AgentState, tools_map: dict) -> dict:
                     update.generated_sql = result.data
                     update.iterations = state.iterations + 1
                     
-            case ToolName.GET_SCHEMA:
+            case ToolName.GET_PROD_SCHEMA:
                 if result.outcome == ToolOutcome.SUCCESS:
                     update.current_schema = result.data
                     
-            case ToolName.TEST_SQL:
+            case ToolName.GET_SANDBOX_SCHEMA:
                 if result.outcome == ToolOutcome.SUCCESS:
                     update.sandbox_schema = result.data
                     
