@@ -1,5 +1,6 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
-from ..protocol import SQLGenerator
+from langchain_core.messages import HumanMessage, SystemMessage
+from ..protocol import SQLGenerator, GeneratedSQL
 from utils.logging import setup_logger
 
 
@@ -9,34 +10,30 @@ class GeminiSQLGenerator:
     def __init__(self, model_name: str, api_key: str):
         self.llm = ChatGoogleGenerativeAI(
             model=model_name,
-            google_api_key=api_key
-        )
+            google_api_key=api_key,
+            temperature=0.1
+        ).with_structured_output(GeneratedSQL)
 
     def generate(self, current_schema: str, user_input: str, error_log: str | None = None) -> str:
-        prompt = f"""
-            "You are a Senior PostgreSQL Architect. "
-                Current schema:
-            {current_schema}
-            
-            Task: {user_input}
-            
-            Return ONLY valid SQL. No markdown, no explanations.
-            """
+        system_prompt = (
+            "You are a Senior PostgreSQL Architect.\n"
+            "Write valid SQL to fulfill the user's request based on the schema.\n"
+            "Return ONLY valid SQL. No markdown, no explanations."
+        )
 
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=f"Current schema:\n{current_schema}\n\nTask: {user_input}")
+        ]
+        
         if error_log:
-            prompt += f"\n\nCRITICAL FIX REQUIRED:\nYour previous SQL query failed with the following error:\n{error_log}\n\nPlease analyze the error and provide a corrected SQL query."
+            error_msg = f"CRITICAL FIX REQUIRED:\nYour previous SQL query failed with error:\n{error_log}\nFix the SQL."
+            messages.append(HumanMessage(content=error_msg))
 
-        logger.debug(f"[SQL Generator] Sending prompt to LLM:\n{prompt}")
-        logger.info(f"Generating SQL...")
+        logger.info("Generating SQL...")
 
-        response = self.llm.invoke(prompt)
+        response: GeneratedSQL = self.llm.invoke(messages)
 
-        logger.debug(f"[SQL Generator] Raw LLM Response:\n{response.content}")
-
-        sql = response.content.strip()
-        if sql.startswith("```sql"):
-            sql = sql[6:]
-        if sql.endswith("```"):
-            sql = sql[:-3]
-            
-        return sql.strip()
+        logger.debug(f"[SQL Generator] Structured LLM Response:\n{response.query}")
+        
+        return response.query

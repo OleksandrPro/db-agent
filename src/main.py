@@ -12,13 +12,26 @@ logger = setup_logger(__name__)
 async def process_graph_events(graph_app, inputs, config, writer: AgentEventWriter):
     async for event in graph_app.astream_events(inputs, config=config, version="v2"):
         kind = event["event"]
+        tags = event.get("tags", [])
         
         if kind == "on_chat_model_end":
-            ai_message = event["data"]["output"]
-            if hasattr(ai_message, "content") and ai_message.content:
-                thought = ai_message.content.strip()
-                if thought:
-                    writer.on_thought(thought)
+            if "orchestrator" in tags:
+                ai_message = event["data"]["output"]
+                
+                if hasattr(ai_message, "content") and ai_message.content:
+                    raw_content = ai_message.content
+                    thought = ""
+                    
+                    if isinstance(raw_content, str):
+                        thought = raw_content.strip()
+                    elif isinstance(raw_content, list):
+                        thought = "".join(
+                            block["text"] for block in raw_content 
+                            if isinstance(block, dict) and "text" in block
+                        ).strip()
+                    
+                    if thought:
+                        writer.on_thought(thought)
                     
         elif kind == "on_tool_start":
             tool_name = event["name"]
@@ -84,6 +97,9 @@ async def main():
             
             resume_command = Command(resume=user_decision.model_dump())
             await process_graph_events(app, resume_command, config, writer=logger_writer)
+
+            snapshot = app.get_state(config)
+            logger.debug(f"[MAIN DEBUG] Snapshot status after Resume: '{snapshot.values.get('status')}'")
         else:
             break
             

@@ -56,7 +56,7 @@ STRICT WORKFLOW TO FOLLOW:
 8. If you receive a message saying "HUMAN APPROVED", you MUST call `execute_production_deployment`.
     """
     
-    agent_model = llm.bind_tools(tools)
+    agent_model = llm.bind_tools(tools).with_config({"tags": ["orchestrator"]})
     messages = [SystemMessage(content=system_prompt)] + state.messages
     response = agent_model.invoke(messages)
 
