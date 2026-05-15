@@ -12,11 +12,7 @@ from config import settings
 @tool
 def get_production_schema() -> ToolResult:
     """
-    Use this tool FIRST to retrieve the current DDL schema of the production PostgreSQL database.
-    
-    WHEN TO USE:
-    Always call this tool at the very beginning of the process.
-    You must know the exact table structures, column names, and constraints to fulfill the user's request.
+    Retrieves the current DDL schema of the production PostgreSQL database.
     
     Returns:
         A text string containing the complete SQL DDL representation of the current production database.
@@ -35,11 +31,7 @@ def make_sql_generation_tool(generator: SQLGenerator):
     @tool
     def generate_sql_migration(user_request: str, database_schema: str, error_log: str = None) -> ToolResult:
         """
-        Use this tool to generate the raw SQL migration query based on the user's request.
-        
-        WHEN TO USE:
-        Call this tool after you have successfully retrieved the database schema. 
-        You must also call this tool again if your previous SQL failed the sandbox test or was rejected by the Critic.
+        Generates a raw SQL migration query based on the user's request.
         
         Args:
             user_request: The original instruction provided by the user.
@@ -60,11 +52,7 @@ def make_sql_generation_tool(generator: SQLGenerator):
 @tool
 def reset_and_prepare_sandbox() -> ToolResult:
     """
-    Use this tool to wipe the sandbox database clean and synchronize it with the current production schema.
-    
-    WHEN TO USE:
-    You MUST call this tool BEFORE you attempt to execute any generated SQL in the sandbox.
-    If your SQL fails and you generate a new one, you MUST call this tool again to reset the environment.
+    Wipes the sandbox database clean and synchronizes it with the current production schema.
     
     Returns:
         A success message indicating the sandbox is ready for testing.
@@ -84,17 +72,14 @@ def reset_and_prepare_sandbox() -> ToolResult:
 @tool
 def execute_sandbox_sql(sql_query: str) -> ToolResult:
     """
-    Use this tool to execute your generated SQL query in the isolated sandbox environment.
-    
-    WHEN TO USE:
-    Call this ONLY AFTER you have successfully called `reset_and_prepare_sandbox`.
+    Executes a generated SQL query in the isolated sandbox environment.
     
     Args:
         sql_query: The raw SQL string you want to test.
         
     Returns:
         If successful, returns a 'SUCCESS' message.
-        If it fails, returns an 'ERROR' with PostgreSQL logs. You MUST generate new SQL and reset the sandbox if this happens.
+        If it fails, returns an 'ERROR' with PostgreSQL logs.
     """
     test_engine = get_engine(settings.db_test.url)
     try:
@@ -111,11 +96,7 @@ def execute_sandbox_sql(sql_query: str) -> ToolResult:
 @tool
 def get_sandbox_schema() -> ToolResult:
     """
-    Use this tool to retrieve the updated DDL schema from the sandbox AFTER you have executed your SQL.
-    
-    WHEN TO USE:
-    Call this tool after `execute_sandbox_sql` returns SUCCESS. 
-    Use this to visually verify that your SQL made the correct structural changes before asking the Critic for a review.
+    Retrieves the updated DDL schema from the sandbox database.
     
     Returns:
         A text string containing the DDL representation of the sandbox database.
@@ -134,22 +115,18 @@ def make_critic_tool(critic: SQLReviewer):
     @tool
     def ask_senior_dba_critic(original_schema: str, sandbox_schema: str, proposed_sql: str, user_request: str) -> ToolResult:
         """
-        Use this tool to request a mandatory peer review from a Senior Database Administrator (Critic).
-        
-        WHEN TO USE:
-        Call this tool ONLY AFTER the SQL has successfully passed the test_sql_in_sandbox tool.
-        The Critic will evaluate the SQL for structural safety (preventing data loss) and intent accuracy.
+        Requests a peer review from a Senior Database Administrator (Critic) to evaluate the SQL for structural safety and intent accuracy.
         
         Args:
             original_schema: The original DB schema before any changes.
-            sandbox_schema: The resulting schema returned by the successful sandbox test.
-            proposed_sql: The exact SQL query that passed the sandbox test.
+            sandbox_schema: The resulting schema returned by the sandbox test.
+            proposed_sql: The exact SQL query.
             user_request: The original request from the user.
             
         Returns:
             A review text string. 
-            If APPROVED, it includes a human-readable summary of the changes. You are now ready to stop and await human approval.
-            If REJECTED, it includes detailed feedback. You MUST use generate_sql_migration again to fix the issues mentioned in the feedback.
+            If APPROVED, it includes a summary of the changes.
+            If REJECTED, it includes detailed feedback.
         """
         review = critic.review(
             user_prompt=user_request, original_schema=original_schema, 
@@ -168,14 +145,10 @@ def make_critic_tool(critic: SQLReviewer):
 @tool
 def execute_production_deployment(sql_query: str) -> ToolResult:
     """
-    Use this tool to apply the final, approved SQL migration directly to the production database.
-    
-    WHEN TO USE:
-    Call this tool ONLY AFTER you have received explicit approval from the Human user. 
-    Never call this tool autonomously based only on the Critic's approval.
+    Applies an SQL migration directly to the production database.
     
     Args:
-        sql_query: The strictly tested and approved SQL query.
+        sql_query: The approved SQL query.
         
     Returns:
         A text string containing a success or failure message regarding the production deployment.

@@ -44,18 +44,6 @@ You are an autonomous Senior DBA Agent. Your goal is to write, test, and validat
 CRITICAL RULE FOR REASONING:
 Before you call ANY tool, or before you give a final answer, you MUST write down your thought process. 
 Explain WHAT you are doing and WHY. Keep it brief and focused on the next immediate step.
-
-STRICT WORKFLOW TO FOLLOW:
-1. Call `get_production_schema` to understand the existing tables.
-2. Call `generate_sql_migration` to write the SQL query.
-3. Call `reset_and_prepare_sandbox` to wipe the test environment clean. NEVER skip this step before executing SQL.
-4. Call `execute_sandbox_sql` to run your generated query. 
-   - If it FAILS: go back to step 2 and pass the error log.
-5. If execution succeeds, call `get_sandbox_schema` to verify your changes actually worked.
-6. Call `ask_senior_dba_critic` to get your work approved.
-   - If rejected: go back to step 2 with the feedback.
-7. If Critic APPROVES, you are DONE. Stop and wait for human approval.
-8. ONLY IF you receive a message explicitly saying "HUMAN APPROVED", you MUST call `execute_production_deployment`.
     """
     
     agent_model = llm.bind_tools(tools).with_config({"tags": ["orchestrator"]})
